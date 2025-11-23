@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useUser, useFirestore } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { collection, doc, getDocs, query, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, writeBatch } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -96,42 +96,42 @@ const mapAndValidateRow = (row: any, companyId: string, type: 'vendors' | 'custo
     }
   
     switch (type) {
-      case 'vendors':
-        if (!sanitized['Vendor Name']) return null;
-        return {
-            vendorName: sanitized['Vendor Name'],
-            vendorEmail: sanitized['Contact Email'] || '',
-            defaultExpenseAccount: sanitized['Default Expense Account'] || '',
-            companyId: companyId,
-            defaultExpenseAccountId: '', // Will be linked later if account name matches
-            transactions: [],
-        } as Omit<Vendor, 'vendorId'>;
-
-    case 'customers':
-        if (!sanitized['Customer Name']) return null;
-        return {
-            customerName: sanitized['Customer Name'],
-            customerEmail: sanitized['Contact Email'] || '',
-            defaultRevenueAccount: sanitized['Default Revenue Account'] || '',
-            companyId: companyId,
-            defaultRevenueAccountId: '', // Will be linked later
-            transactions: [],
-        } as Omit<Customer, 'customerId'>;
-
-    case 'chartOfAccounts':
-        if (!sanitized['Account Name']) return null;
-        return {
-            accountName: sanitized['Account Name'],
-            accountNumber: sanitized['Account Number']?.toString() || '',
-            accountType: sanitized['Account Type'] || '',
-            description: sanitized['Description'] || '',
-            subAccountName: sanitized['Sub Account Name'] || '',
-            subAccountNumber: sanitized['Sub Account Number']?.toString() || '',
-            companyId: companyId,
-            defaultVendorId: '',
-            defaultCustomerId: '',
-            transactions: [],
-        } as Omit<ChartOfAccount, 'accountId'>;
+        case 'vendors':
+            if (!sanitized['Vendor Name']) return null;
+            return {
+                companyId,
+                vendorName: sanitized['Vendor Name'],
+                vendorEmail: sanitized['Contact Email'] || '',
+                defaultExpenseAccount: sanitized['Default Expense Account'] || '',
+                defaultExpenseAccountId: '',
+                transactions: [],
+            } as Omit<Vendor, 'vendorId'>;
+  
+        case 'customers':
+            if (!sanitized['Customer Name']) return null;
+            return {
+                companyId,
+                customerName: sanitized['Customer Name'],
+                customerEmail: sanitized['Contact Email'] || '',
+                defaultRevenueAccount: sanitized['Default Revenue Account'] || '',
+                defaultRevenueAccountId: '',
+                transactions: [],
+            } as Omit<Customer, 'customerId'>;
+  
+        case 'chartOfAccounts':
+            if (!sanitized['Account Name']) return null;
+            return {
+                companyId,
+                accountName: sanitized['Account Name'],
+                accountNumber: sanitized['Account Number']?.toString() || '',
+                accountType: sanitized['Account Type'] || '',
+                description: sanitized['Description'] || '',
+                subAccountName: sanitized['Sub Account Name'] || '',
+                subAccountNumber: sanitized['Sub Account Number']?.toString() || '',
+                defaultVendorId: '',
+                defaultCustomerId: '',
+                transactions: [],
+            } as Omit<ChartOfAccount, 'accountId'>;
         default:
             return null;
     }
@@ -169,7 +169,7 @@ export default function DataImportPage() {
         return;
       }
       
-      let validatedData = json.map(row => mapAndValidateRow(row, companyId, type)).filter(Boolean);
+      let validatedData = json.map(row => mapAndValidateRow(row, companyId, type)).filter(Boolean) as (Partial<Vendor | Customer | ChartOfAccount>[]);
 
       if (validatedData.length === 0) {
         toast({
@@ -186,16 +186,27 @@ export default function DataImportPage() {
       // Prevent duplicates for COA
       if (type === 'chartOfAccounts') {
         const existingAccountsSnapshot = await getDocs(collectionRef);
-        const existingAccountNumbers = new Set(existingAccountsSnapshot.docs.map(doc => doc.data().accountNumber));
+        const existingAccounts = new Set(
+          existingAccountsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            // Create a unique key from account number and sub-account number
+            return `${data.accountNumber || ''}-${data.subAccountNumber || ''}`;
+          })
+        );
         
         const originalCount = validatedData.length;
-        validatedData = validatedData.filter(account => !existingAccountNumbers.has((account as ChartOfAccount).accountNumber));
+        validatedData = validatedData.filter(account => {
+            const chartOfAccount = account as ChartOfAccount;
+            const newAccountKey = `${chartOfAccount.accountNumber || ''}-${chartOfAccount.subAccountNumber || ''}`;
+            // Skip if the account key is already in the set
+            return !existingAccounts.has(newAccountKey);
+        });
         const skippedCount = originalCount - validatedData.length;
 
         if (skippedCount > 0) {
             toast({
                 title: 'Duplicate Accounts Skipped',
-                description: `${skippedCount} accounts with existing account numbers were not imported.`,
+                description: `${skippedCount} accounts with existing account and sub-account numbers were not imported.`,
               });
         }
       }
@@ -203,7 +214,7 @@ export default function DataImportPage() {
       if (validatedData.length === 0) {
         toast({
             title: 'Import Complete',
-            description: `All records in the file already exist in your Chart of Accounts.`,
+            description: `All records in the file already exist or were skipped. No new records were added.`,
           });
         return;
       }

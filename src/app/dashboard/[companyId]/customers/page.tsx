@@ -16,6 +16,7 @@ import {
   deleteDoc,
   setDoc,
   addDoc,
+  where,
 } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import {
@@ -222,17 +223,34 @@ export default function CustomersPage() {
   };
 
   const handleFormSubmit = async (values: CustomerFormValues) => {
-    if (!customersCollectionRef) return;
-
+    if (!customersCollectionRef || !firestore || !user) return;
+  
+    let accountId = '';
+    if (values.defaultRevenueAccount) {
+      const coaRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`);
+      const q = query(coaRef, where('accountName', '==', values.defaultRevenueAccount));
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        accountId = querySnapshot.docs[0].id;
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Account Not Found',
+          description: `The account "${values.defaultRevenueAccount}" does not exist in your Chart of Accounts. Please create it first.`,
+        });
+        return; 
+      }
+    }
+  
     const dataToSave: Omit<Customer, 'customerId'> = {
-        companyId: params.companyId,
-        customerName: values.customerName,
-        customerEmail: values.customerEmail || '',
-        defaultRevenueAccount: values.defaultRevenueAccount || '',
-        defaultRevenueAccountId: selectedCustomer?.defaultRevenueAccountId || '',
-        transactions: selectedCustomer?.transactions || [],
-      };
-
+      companyId: params.companyId,
+      customerName: values.customerName,
+      customerEmail: values.customerEmail || '',
+      defaultRevenueAccount: values.defaultRevenueAccount || '',
+      defaultRevenueAccountId: accountId,
+      transactions: selectedCustomer?.transactions || [],
+    };
+  
     try {
       if (selectedCustomer) {
         const docRef = doc(customersCollectionRef, selectedCustomer.customerId);

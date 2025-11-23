@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useUser, useFirestore } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { collection, doc, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, query, where, writeBatch } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -96,45 +96,42 @@ const mapAndValidateRow = (row: any, companyId: string, type: 'vendors' | 'custo
     }
   
     switch (type) {
-        case 'vendors':
-            if (!sanitized['Vendor Name']) return null;
-            return {
-                vendorId: '', // Firestore will generate
-                companyId: companyId,
-                vendorName: sanitized['Vendor Name'] || '',
-                vendorEmail: sanitized['Contact Email'] || '',
-                defaultExpenseAccount: sanitized['Default Expense Account'] || '',
-                defaultExpenseAccountId: '', // To be filled later
-                transactions: [],
-            } as Vendor;
+      case 'vendors':
+        if (!sanitized['Vendor Name']) return null;
+        return {
+            vendorName: sanitized['Vendor Name'],
+            vendorEmail: sanitized['Contact Email'] || '',
+            defaultExpenseAccount: sanitized['Default Expense Account'] || '',
+            companyId: companyId,
+            defaultExpenseAccountId: '', // Will be linked later if account name matches
+            transactions: [],
+        } as Omit<Vendor, 'vendorId'>;
 
-        case 'customers':
-            if (!sanitized['Customer Name']) return null;
-            return {
-                customerId: '', // Firestore will generate
-                companyId: companyId,
-                customerName: sanitized['Customer Name'] || '',
-                customerEmail: sanitized['Contact Email'] || '',
-                defaultRevenueAccount: sanitized['Default Revenue Account'] || '',
-                defaultRevenueAccountId: '', // To be filled later
-                transactions: [],
-            } as Customer;
+    case 'customers':
+        if (!sanitized['Customer Name']) return null;
+        return {
+            customerName: sanitized['Customer Name'],
+            customerEmail: sanitized['Contact Email'] || '',
+            defaultRevenueAccount: sanitized['Default Revenue Account'] || '',
+            companyId: companyId,
+            defaultRevenueAccountId: '', // Will be linked later
+            transactions: [],
+        } as Omit<Customer, 'customerId'>;
 
-        case 'chartOfAccounts':
-            if (!sanitized['Account Name']) return null;
-            return {
-                accountId: '', // Firestore will generate
-                companyId: companyId,
-                accountName: sanitized['Account Name'] || '',
-                accountNumber: sanitized['Account Number']?.toString() || '',
-                accountType: sanitized['Account Type'] || '',
-                description: sanitized['Description'] || '',
-                subAccountName: sanitized['Sub Account Name'] || '',
-                subAccountNumber: sanitized['Sub Account Number']?.toString() || '',
-                defaultVendorId: '',
-                defaultCustomerId: '',
-                transactions: [],
-            } as ChartOfAccount;
+    case 'chartOfAccounts':
+        if (!sanitized['Account Name']) return null;
+        return {
+            accountName: sanitized['Account Name'],
+            accountNumber: sanitized['Account Number']?.toString() || '',
+            accountType: sanitized['Account Type'] || '',
+            description: sanitized['Description'] || '',
+            subAccountName: sanitized['Sub Account Name'] || '',
+            subAccountNumber: sanitized['Sub Account Number']?.toString() || '',
+            companyId: companyId,
+            defaultVendorId: '',
+            defaultCustomerId: '',
+            transactions: [],
+        } as Omit<ChartOfAccount, 'accountId'>;
         default:
             return null;
     }
@@ -172,7 +169,7 @@ export default function DataImportPage() {
         return;
       }
       
-      const validatedData = json.map(row => mapAndValidateRow(row, companyId, type)).filter(Boolean);
+      let validatedData = json.map(row => mapAndValidateRow(row, companyId, type)).filter(Boolean);
 
       if (validatedData.length === 0) {
         toast({
@@ -182,9 +179,34 @@ export default function DataImportPage() {
         });
         return;
       }
-
+      
       const collectionPath = `/users/${user.uid}/companies/${companyId}/${type}`;
       const collectionRef = collection(firestore, collectionPath);
+
+      // Prevent duplicates for COA
+      if (type === 'chartOfAccounts') {
+        const existingAccountsSnapshot = await getDocs(collectionRef);
+        const existingAccountNumbers = new Set(existingAccountsSnapshot.docs.map(doc => doc.data().accountNumber));
+        
+        const originalCount = validatedData.length;
+        validatedData = validatedData.filter(account => !existingAccountNumbers.has((account as ChartOfAccount).accountNumber));
+        const skippedCount = originalCount - validatedData.length;
+
+        if (skippedCount > 0) {
+            toast({
+                title: 'Duplicate Accounts Skipped',
+                description: `${skippedCount} accounts with existing account numbers were not imported.`,
+              });
+        }
+      }
+
+      if (validatedData.length === 0) {
+        toast({
+            title: 'Import Complete',
+            description: `All records in the file already exist in your Chart of Accounts.`,
+          });
+        return;
+      }
       
       const BATCH_SIZE = 499; // Firestore batch limit is 500
       for (let i = 0; i < validatedData.length; i += BATCH_SIZE) {
@@ -192,9 +214,8 @@ export default function DataImportPage() {
         const chunk = validatedData.slice(i, i + BATCH_SIZE);
         chunk.forEach((dataItem) => {
           if(dataItem) {
-            const { vendorId, customerId, accountId, ...rest } = dataItem as any;
             const docRef = doc(collectionRef);
-            batch.set(docRef, rest);
+            batch.set(docRef, dataItem);
           }
         });
         await batch.commit();

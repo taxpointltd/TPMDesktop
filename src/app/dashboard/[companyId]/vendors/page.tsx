@@ -16,6 +16,7 @@ import {
   deleteDoc,
   setDoc,
   addDoc,
+  where,
 } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import {
@@ -223,17 +224,34 @@ export default function VendorsPage() {
   };
 
   const handleFormSubmit = async (values: VendorFormValues) => {
-    if (!vendorsCollectionRef) return;
-
+    if (!vendorsCollectionRef || !firestore || !user) return;
+  
+    let accountId = '';
+    if (values.defaultExpenseAccount) {
+      const coaRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`);
+      const q = query(coaRef, where('accountName', '==', values.defaultExpenseAccount));
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        accountId = querySnapshot.docs[0].id;
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Account Not Found',
+          description: `The account "${values.defaultExpenseAccount}" does not exist in your Chart of Accounts. Please create it first.`,
+        });
+        return; // Stop execution if account doesn't exist
+      }
+    }
+  
     const dataToSave: Omit<Vendor, 'vendorId'> = {
-        companyId: params.companyId,
-        vendorName: values.vendorName,
-        vendorEmail: values.vendorEmail || '',
-        defaultExpenseAccount: values.defaultExpenseAccount || '',
-        defaultExpenseAccountId: selectedVendor?.defaultExpenseAccountId || '',
-        transactions: selectedVendor?.transactions || [],
-      };
-
+      companyId: params.companyId,
+      vendorName: values.vendorName,
+      vendorEmail: values.vendorEmail || '',
+      defaultExpenseAccount: values.defaultExpenseAccount || '',
+      defaultExpenseAccountId: accountId,
+      transactions: selectedVendor?.transactions || [],
+    };
+  
     try {
       if (selectedVendor) {
         const docRef = doc(vendorsCollectionRef, selectedVendor.vendorId);

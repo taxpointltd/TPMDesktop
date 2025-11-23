@@ -1,5 +1,4 @@
-Name,Contact Email,Default Expense Account
-"Office Supplies Plus","supplies@officeplus.com","Office Supplies"
-"Marketing Masters","contact@marketingmasters.com","Advertising Expense"
-"City Bank","support@citybank.com","Bank Service Charges"
-"Tech Hardware Inc.","sales@techhardware.com","Computer Equipment"
+Vendor Name,Contact Email,Default Expense Account
+"Office Supplies Inc.","contact@officesupplies.com","60100 - Office Supplies"
+"Tech Solutions LLC","support@techsolutions.dev","72300 - IT & Computer Services"
+"Creative Agency","hello@creative.co","71500 - Marketing & Advertising"

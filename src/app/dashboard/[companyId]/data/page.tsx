@@ -48,6 +48,9 @@ const ImportCard = ({ title, description, icon: Icon, sampleUrl, onImport }: Imp
     } finally {
       clearInterval(interval);
       setIsImporting(false);
+      // Reset file input
+      const fileInput = document.getElementById(`file-input-${title}`) as HTMLInputElement;
+      if(fileInput) fileInput.value = "";
       setFile(null);
       setTimeout(() => setProgress(0), 3000);
     }
@@ -66,7 +69,7 @@ const ImportCard = ({ title, description, icon: Icon, sampleUrl, onImport }: Imp
       </CardHeader>
       <CardContent className="grid gap-4">
         <div className="flex items-center gap-2">
-          <Input type="file" className="cursor-pointer" onChange={handleFileChange} accept=".csv, .xlsx" disabled={isImporting} />
+          <Input id={`file-input-${title}`} type="file" className="cursor-pointer" onChange={handleFileChange} accept=".csv, .xlsx" disabled={isImporting} />
           <Button onClick={handleImport} disabled={!file || isImporting}>
             {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
             Import
@@ -93,45 +96,47 @@ const mapAndValidateRow = (row: any, companyId: string, type: 'vendors' | 'custo
     }
   
     switch (type) {
-      case 'vendors':
-        if (!sanitized['Vendor Name']) return null; // Required field
-        const vendor: Omit<Vendor, 'vendorId'> = {
-            companyId: companyId,
-            vendorName: sanitized['Vendor Name'] || '',
-            vendorEmail: sanitized['Contact Email'] || '',
-            defaultExpenseAccount: sanitized['Default Expense Account'] || '',
-            defaultExpenseAccountId: '',
-            transactions: [],
-        };
-        return vendor;
-      case 'customers':
-        if (!sanitized['Customer Name']) return null; // Required field
-        const customer: Omit<Customer, 'customerId'> = {
-            companyId: companyId,
-            customerName: sanitized['Customer Name'] || '',
-            customerEmail: sanitized['Contact Email'] || '',
-            defaultRevenueAccount: sanitized['Default Revenue Account'] || '',
-            defaultRevenueAccountId: '',
-            transactions: [],
-        };
-        return customer;
-      case 'chartOfAccounts':
-        if (!sanitized['Account Name']) return null; // Required field
-        const account: Omit<ChartOfAccount, 'accountId'> = {
-            companyId: companyId,
-            accountName: sanitized['Account Name'] || '',
-            accountNumber: sanitized['Account Number'] || '',
-            accountType: sanitized['Account Type'] || '',
-            description: sanitized['Description'] || '',
-            subAccountName: sanitized['Sub Account Name'] || '',
-            subAccountNumber: sanitized['Sub Account Number'] || '',
-            defaultVendorId: '',
-            defaultCustomerId: '',
-            transactions: [],
-        };
-        return account;
-      default:
-        return null;
+        case 'vendors':
+            if (!sanitized['Vendor Name']) return null;
+            return {
+                vendorId: '', // Firestore will generate
+                companyId: companyId,
+                vendorName: sanitized['Vendor Name'] || '',
+                vendorEmail: sanitized['Contact Email'] || '',
+                defaultExpenseAccount: sanitized['Default Expense Account'] || '',
+                defaultExpenseAccountId: '', // To be filled later
+                transactions: [],
+            } as Vendor;
+
+        case 'customers':
+            if (!sanitized['Customer Name']) return null;
+            return {
+                customerId: '', // Firestore will generate
+                companyId: companyId,
+                customerName: sanitized['Customer Name'] || '',
+                customerEmail: sanitized['Contact Email'] || '',
+                defaultRevenueAccount: sanitized['Default Revenue Account'] || '',
+                defaultRevenueAccountId: '', // To be filled later
+                transactions: [],
+            } as Customer;
+
+        case 'chartOfAccounts':
+            if (!sanitized['Account Name']) return null;
+            return {
+                accountId: '', // Firestore will generate
+                companyId: companyId,
+                accountName: sanitized['Account Name'] || '',
+                accountNumber: sanitized['Account Number']?.toString() || '',
+                accountType: sanitized['Account Type'] || '',
+                description: sanitized['Description'] || '',
+                subAccountName: sanitized['Sub Account Name'] || '',
+                subAccountNumber: sanitized['Sub Account Number']?.toString() || '',
+                defaultVendorId: '',
+                defaultCustomerId: '',
+                transactions: [],
+            } as ChartOfAccount;
+        default:
+            return null;
     }
   };
   
@@ -173,7 +178,7 @@ export default function DataImportPage() {
         toast({
           variant: 'destructive',
           title: 'Import Failed',
-          description: 'No valid records found in the file. Please check the column headers and required fields.',
+          description: 'No valid records found. Please check that the file has the correct column headers (e.g., "Vendor Name") and that required fields are not empty.',
         });
         return;
       }
@@ -187,8 +192,9 @@ export default function DataImportPage() {
         const chunk = validatedData.slice(i, i + BATCH_SIZE);
         chunk.forEach((dataItem) => {
           if(dataItem) {
+            const { vendorId, customerId, accountId, ...rest } = dataItem as any;
             const docRef = doc(collectionRef);
-            batch.set(docRef, dataItem);
+            batch.set(docRef, rest);
           }
         });
         await batch.commit();

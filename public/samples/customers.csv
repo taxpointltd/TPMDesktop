@@ -1,4 +1,4 @@
-name,contactEmail,defaultRevenueAccount
-"Creative Solutions Inc.","contact@creativesolutions.com","Sales Revenue"
-"Global Tech Corp","sales@globaltech.com","Service Revenue"
-"Innovate LLC","accounts@innovatellc.com","Consulting Revenue"
+Customer Name,Contact Email,Default Revenue Account
+"Global Corp","billing@globalcorp.com","40000 - Sales Revenue"
+"Innovate LLC","accounts@innovatellc.com","42000 - Service Revenue"
+"Startup Co","payments@startupco.com","40000 - Sales Revenue"

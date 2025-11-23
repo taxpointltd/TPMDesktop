@@ -4,19 +4,12 @@ import { useFirestore, useUser } from '@/firebase';
 import {
   collection,
   query,
-  orderBy,
-  limit,
-  startAfter,
+  where,
   getDocs,
-  QueryDocumentSnapshot,
-  DocumentData,
-  endBefore,
-  limitToLast,
   doc,
   deleteDoc,
   setDoc,
   addDoc,
-  where,
   writeBatch,
 } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -78,7 +71,6 @@ import {
 } from "@/components/ui/command"
 import { Input } from '@/components/ui/input';
 import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown, Search, Link as LinkIcon, ChevronsUpDown } from 'lucide-react';
-import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
@@ -101,12 +93,10 @@ const customerSchema = z.object({
 
 type CustomerFormValues = z.infer<typeof customerSchema>;
 
-const PAGE_SIZE = 10;
-
 // LinkAccountDialog Component
 const LinkAccountDialog = ({ open, onOpenChange, customer, onLink, accounts }: { open: boolean, onOpenChange: (open: boolean) => void, customer: Customer, onLink: (accountId: string) => void, accounts: ChartOfAccount[] }) => {
     const [popoverOpen, setPopoverOpen] = useState(false);
-    const [selectedAccountId, setSelectedAccountId] = useState('');
+    const [selectedAccountId, setSelectedAccountId] = useState(customer.defaultRevenueAccountId || '');
   
     const handleLink = () => {
       onLink(selectedAccountId);
@@ -170,16 +160,11 @@ export default function CustomersPage() {
   const { user } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
-  const { chartOfAccounts, setVendors, setCustomers, setChartOfAccounts } = useStore();
+  const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts, updateCustomer } = useStore();
 
-  const [customers, setCustomersState] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [firstVisible, setFirstVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [isLastPage, setIsLastPage] = useState(false);
-  const [page, setPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{
-    key: string;
+    key: keyof Customer;
     direction: 'asc' | 'desc';
   }>({ key: 'customerName', direction: 'asc' });
   const [searchTerm, setSearchTerm] = useState('');
@@ -202,128 +187,66 @@ export default function CustomersPage() {
     },
   });
 
-  const customersCollectionRef = useMemoFirebase(() => {
-    if (!user || !firestore || !params.companyId) return null;
-    return collection(firestore, `/users/${user.uid}/companies/${params.companyId}/customers`);
-  }, [firestore, user, params.companyId]);
-
-  const fetchCustomers = useCallback(async (direction: 'next' | 'prev' | 'first' = 'first') => {
-    if (!customersCollectionRef) return;
+  const fetchAllData = useCallback(async () => {
+    if (!user || !firestore || !params.companyId) return;
     setIsLoading(true);
-
-    let q;
-    const { key, direction: sortDirection } = sortConfig;
-    
-    // Resetting to first page
-    if (direction === 'first') {
-      q = query(customersCollectionRef, orderBy(key, sortDirection), limit(PAGE_SIZE));
-      setPage(1);
-    } else if (direction === 'next' && lastVisible) {
-      q = query(customersCollectionRef, orderBy(key, sortDirection), startAfter(lastVisible), limit(PAGE_SIZE));
-    } else if (direction === 'prev' && firstVisible) {
-      q = query(customersCollectionRef, orderBy(key, sortDirection), endBefore(firstVisible), limitToLast(PAGE_SIZE));
-    } else {
-        // Fallback to first page if pagination state is weird
-        q = query(customersCollectionRef, orderBy(key, sortDirection), limit(PAGE_SIZE));
-        setPage(1);
-    }
-
     try {
-      const documentSnapshots = await getDocs(q);
-      const newCustomers = documentSnapshots.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Customer[];
+      const vendorsRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors`);
+      const customersRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/customers`);
+      const coaRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`);
 
-      if (documentSnapshots.docs.length > 0) {
-        setCustomersState(newCustomers);
-        setLastVisible(documentSnapshots.docs[documentSnapshots.docs.length - 1]);
-        setFirstVisible(documentSnapshots.docs[0]);
-        setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
-      } else {
-        if (direction === 'first') {
-            setCustomersState([]);
-        }
-        setIsLastPage(true);
-      }
+      const [vendorsSnap, customersSnap, coaSnap] = await Promise.all([
+        getDocs(vendorsRef),
+        getDocs(customersRef),
+        getDocs(coaRef),
+      ]);
+
+      setVendors(vendorsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor)));
+      setCustomers(customersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer)));
+      setChartOfAccounts(coaSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChartOfAccount)));
     } catch (error) {
-      console.error('CustomersPage: Error fetching customers:', error);
-      setCustomersState([]);
+      console.error("Failed to fetch data for global store:", error);
       toast({
-        variant: 'destructive',
-        title: 'Error fetching customers',
-        description: 'Could not load customer data. Please check your connection and permissions.',
+          variant: "destructive",
+          title: "Data Sync Error",
+          description: "Could not sync all data for AI operations."
       });
     } finally {
       setIsLoading(false);
     }
-  }, [customersCollectionRef, lastVisible, firstVisible, sortConfig, toast]);
-  
-  // Fetch all data for Zustand store (for AI interlinking)
-  useEffect(() => {
-    if (!user || !firestore || !params.companyId) return;
-
-    const fetchAllData = async () => {
-      try {
-        const vendorsRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors`);
-        const customersRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/customers`);
-        const coaRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`);
-
-        const [vendorsSnap, customersSnap, coaSnap] = await Promise.all([
-          getDocs(vendorsRef),
-          getDocs(customersRef),
-          getDocs(coaRef),
-        ]);
-
-        setVendors(vendorsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor)));
-        setCustomers(customersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer)));
-        setChartOfAccounts(coaSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChartOfAccount)));
-      } catch (error) {
-        console.error("Failed to fetch data for global store:", error);
-        toast({
-            variant: "destructive",
-            title: "Data Sync Error",
-            description: "Could not sync all data for AI operations."
-        });
-      }
-    };
-    fetchAllData();
   }, [user, firestore, params.companyId, setVendors, setCustomers, setChartOfAccounts, toast]);
 
   useEffect(() => {
-    if (customersCollectionRef) {
-      fetchCustomers('first');
+    fetchAllData();
+  }, [fetchAllData]);
+
+  const sortedAndFilteredCustomers = useMemo(() => {
+    let filtered = [...customers];
+
+    if (searchTerm) {
+      filtered = filtered.filter(customer =>
+          customer.customerName && customer.customerName.toLowerCase().includes(searchTerm.toLowerCase())
+      );
     }
-  }, [customersCollectionRef, sortConfig, fetchCustomers]);
 
-  const filteredCustomers = useMemo(() => {
-    if (!searchTerm) return customers;
-    return customers.filter(customer =>
-        customer.customerName && customer.customerName.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [customers, searchTerm]);
+    filtered.sort((a, b) => {
+        const aValue = a[sortConfig.key];
+        const bValue = b[sortConfig.key];
 
-  const handleNextPage = () => {
-    if (!isLastPage) {
-      setPage(page + 1);
-      fetchCustomers('next');
-    }
-  };
+        if (aValue < bValue) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+    });
 
-  const handlePrevPage = () => {
-    if (page > 1) {
-      setPage(page - 1);
-      fetchCustomers('prev');
-    }
-  };
+    return filtered;
+  }, [customers, searchTerm, sortConfig]);
 
-  const handleSort = (key: string) => {
+  const handleSort = (key: keyof Customer) => {
     setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc' }));
-    setLastVisible(null);
-    setFirstVisible(null);
-    setPage(1);
-    setIsLastPage(false);
-    setSelectedRows([]);
   };
   
   const openAddModal = () => {
@@ -334,10 +257,11 @@ export default function CustomersPage() {
 
   const openEditModal = (customer: Customer) => {
     setSelectedCustomer(customer);
+    const account = chartOfAccounts.find(a => a.id === customer.defaultRevenueAccountId);
     form.reset({
       customerName: customer.customerName,
       customerEmail: customer.customerEmail || '',
-      defaultRevenueAccount: customer.defaultRevenueAccount || '',
+      defaultRevenueAccount: account?.accountName || customer.defaultRevenueAccount || '',
     });
     setIsFormOpen(true);
   };
@@ -358,37 +282,44 @@ export default function CustomersPage() {
       batch.update(customerRef, { defaultRevenueAccountId: accountId });
       batch.update(accountRef, { defaultCustomerId: customerToLink.id });
       await batch.commit();
+      
+      const updatedCustomer = { ...customerToLink, defaultRevenueAccountId: accountId };
+      updateCustomer(updatedCustomer);
+      const account = chartOfAccounts.find(a => a.id === accountId);
+      if (account) {
+        useStore.getState().updateChartOfAccount({ ...account, defaultCustomerId: customerToLink.id });
+      }
   
       toast({ title: 'Link Successful', description: `Customer "${customerToLink.customerName}" linked to account.` });
-      fetchCustomers('first'); // Refresh data
     } catch (error) {
       console.error("Error linking account:", error);
       toast({ variant: 'destructive', title: 'Link Failed' });
+    } finally {
+        setCustomerToLink(null);
     }
-    setCustomerToLink(null);
   };
 
   const handleFormSubmit = async (values: CustomerFormValues) => {
-    if (!customersCollectionRef || !firestore || !user) return;
-  
+    if (!firestore || !user) return;
+    
+    const customersCollectionRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/customers`);
     let accountId = '';
+    
     if (values.defaultRevenueAccount) {
-      const coaRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`);
-      const q = query(coaRef, where('accountName', '==', values.defaultRevenueAccount));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        accountId = querySnapshot.docs[0].id;
+      const account = chartOfAccounts.find(a => a.accountName === values.defaultRevenueAccount);
+      if (account) {
+        accountId = account.id;
       } else {
         toast({
           variant: 'destructive',
           title: 'Account Not Found',
-          description: `The account "${values.defaultRevenueAccount}" does not exist in your Chart of Accounts. Please create it first.`,
+          description: `The account "${values.defaultRevenueAccount}" does not exist. Please create it first.`,
         });
         return; 
       }
     }
   
-    const dataToSave = {
+    const dataToSave: Omit<Customer, 'id'> = {
       companyId: params.companyId,
       customerName: values.customerName,
       customerEmail: values.customerEmail || '',
@@ -400,13 +331,14 @@ export default function CustomersPage() {
       if (selectedCustomer) {
         const docRef = doc(customersCollectionRef, selectedCustomer.id);
         await setDoc(docRef, dataToSave, { merge: true });
+        updateCustomer({ ...dataToSave, id: selectedCustomer.id });
         toast({ title: 'Customer updated', description: `"${values.customerName}" has been updated.` });
       } else {
-        await addDoc(customersCollectionRef, dataToSave);
+        const newDoc = await addDoc(customersCollectionRef, dataToSave);
+        setCustomers([...customers, { ...dataToSave, id: newDoc.id }]);
         toast({ title: 'Customer created', description: `"${values.customerName}" has been added.` });
       }
       setIsFormOpen(false);
-      fetchCustomers('first');
       setSelectedRows([]);
     } catch (error) {
         console.error('Error saving customer:', error);
@@ -421,19 +353,19 @@ export default function CustomersPage() {
   };
 
   const handleDeleteCustomer = async () => {
-    if (!selectedCustomer || !customersCollectionRef) return;
+    if (!selectedCustomer || !user || !firestore) return;
+    const docRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/customers/${selectedCustomer.id}`);
     try {
-      const docRef = doc(customersCollectionRef, selectedCustomer.id);
       await deleteDoc(docRef);
+      setCustomers(customers.filter(c => c.id !== selectedCustomer.id));
       toast({ title: 'Customer deleted', description: `"${selectedCustomer.customerName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
       setSelectedCustomer(null);
-      fetchCustomers('first');
       setSelectedRows([]);
     } catch (error) {
         console.error('Error deleting customer:', error);
         const permissionError = new FirestorePermissionError({
-            path: doc(customersCollectionRef, selectedCustomer.id).path,
+            path: docRef.path,
             operation: 'delete',
           });
         errorEmitter.emit('permission-error', permissionError);
@@ -442,18 +374,18 @@ export default function CustomersPage() {
   };
 
   const handleBatchDelete = async () => {
-    if (!firestore || !customersCollectionRef || selectedRows.length === 0) return;
+    if (!firestore || !user || selectedRows.length === 0) return;
     const batch = writeBatch(firestore);
     selectedRows.forEach(customerId => {
-      const docRef = doc(customersCollectionRef, customerId);
+      const docRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/customers/${customerId}`);
       batch.delete(docRef);
     });
     try {
       await batch.commit();
+      setCustomers(customers.filter(c => !selectedRows.includes(c.id)));
       toast({ title: `${selectedRows.length} customers deleted.` });
       setIsBatchDeleteConfirmOpen(false);
       setSelectedRows([]);
-      fetchCustomers('first');
     } catch (error) {
       console.error('Error batch deleting customers:', error);
       toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete the selected customers. Check permissions.' });
@@ -462,7 +394,7 @@ export default function CustomersPage() {
   
   const handleSelectAll = (checked: boolean | string) => {
     if (checked) {
-      setSelectedRows(filteredCustomers.map(c => c.id));
+      setSelectedRows(sortedAndFilteredCustomers.map(c => c.id));
     } else {
       setSelectedRows([]);
     }
@@ -525,7 +457,7 @@ export default function CustomersPage() {
                 <TableRow>
                   <TableHead padding="checkbox" className="w-[50px] px-4">
                     <Checkbox
-                      checked={selectedRows.length > 0 && selectedRows.length === filteredCustomers.length && filteredCustomers.length > 0}
+                      checked={selectedRows.length > 0 && selectedRows.length === sortedAndFilteredCustomers.length && sortedAndFilteredCustomers.length > 0}
                       onCheckedChange={handleSelectAll}
                       aria-label="Select all"
                     />
@@ -540,8 +472,8 @@ export default function CustomersPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow><TableCell colSpan={6} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
-                ) : filteredCustomers.length > 0 ? (
-                  filteredCustomers.map((customer) => (
+                ) : sortedAndFilteredCustomers.length > 0 ? (
+                  sortedAndFilteredCustomers.map((customer) => (
                     <TableRow key={customer.id} data-state={selectedRows.includes(customer.id) && "selected"}>
                       <TableCell padding="checkbox" className="px-4">
                         <Checkbox
@@ -552,7 +484,7 @@ export default function CustomersPage() {
                       </TableCell>
                       <TableCell className="font-medium">{customer.customerName}</TableCell>
                       <TableCell>{customer.customerEmail || 'N/A'}</TableCell>
-                      <TableCell>{customer.defaultRevenueAccount || 'N/A'}</TableCell>
+                      <TableCell>{(chartOfAccounts.find(a => a.id === customer.defaultRevenueAccountId))?.accountName || customer.defaultRevenueAccount || 'N/A'}</TableCell>
                        <TableCell>
                         {customer.defaultRevenueAccountId && (
                           <LinkIcon className="h-4 w-4 text-accent" />
@@ -575,10 +507,6 @@ export default function CustomersPage() {
                 )}
               </TableBody>
             </Table>
-          </div>
-          <div className="flex items-center justify-end space-x-2 py-4">
-            <Button variant="outline" size="sm" onClick={handlePrevPage} disabled={page <= 1 || isLoading}>Previous</Button>
-            <Button variant="outline" size="sm" onClick={handleNextPage} disabled={isLastPage || isLoading}>Next</Button>
           </div>
         </CardContent>
       </Card>

@@ -4,19 +4,12 @@ import { useFirestore, useUser } from '@/firebase';
 import {
   collection,
   query,
-  orderBy,
-  limit,
-  startAfter,
+  where,
   getDocs,
-  QueryDocumentSnapshot,
-  DocumentData,
-  endBefore,
-  limitToLast,
   doc,
   deleteDoc,
   setDoc,
   addDoc,
-  where,
   writeBatch,
 } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -78,7 +71,6 @@ import {
   } from "@/components/ui/command"
 import { Input } from '@/components/ui/input';
 import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown, Search, Link as LinkIcon, ChevronsUpDown } from 'lucide-react';
-import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
@@ -101,12 +93,11 @@ const vendorSchema = z.object({
 
 type VendorFormValues = z.infer<typeof vendorSchema>;
 
-const PAGE_SIZE = 10;
 
 // LinkAccountDialog Component
 const LinkAccountDialog = ({ open, onOpenChange, vendor, onLink, accounts }: { open: boolean, onOpenChange: (open: boolean) => void, vendor: Vendor, onLink: (accountId: string) => void, accounts: ChartOfAccount[] }) => {
     const [popoverOpen, setPopoverOpen] = useState(false);
-    const [selectedAccountId, setSelectedAccountId] = useState('');
+    const [selectedAccountId, setSelectedAccountId] = useState(vendor.defaultExpenseAccountId || '');
   
     const handleLink = () => {
       onLink(selectedAccountId);
@@ -170,16 +161,11 @@ export default function VendorsPage() {
   const { user } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
-  const { chartOfAccounts, setVendors, setCustomers, setChartOfAccounts } = useStore();
+  const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts, updateVendor } = useStore();
 
-  const [vendors, setVendorsState] = useState<Vendor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [firstVisible, setFirstVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [isLastPage, setIsLastPage] = useState(false);
-  const [page, setPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{
-    key: string;
+    key: keyof Vendor;
     direction: 'asc' | 'desc';
   }>({ key: 'vendorName', direction: 'asc' });
   const [searchTerm, setSearchTerm] = useState('');
@@ -203,128 +189,66 @@ export default function VendorsPage() {
     },
   });
 
-  const vendorsCollectionRef = useMemoFirebase(() => {
-    if (!user || !firestore || !params.companyId) return null;
-    return collection(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors`);
-  }, [firestore, user, params.companyId]);
-
-  const fetchVendors = useCallback(async (direction: 'next' | 'prev' | 'first' = 'first') => {
-    if (!vendorsCollectionRef) return;
+  const fetchAllData = useCallback(async () => {
+    if (!user || !firestore || !params.companyId) return;
     setIsLoading(true);
-
-    let q;
-    const { key, direction: sortDirection } = sortConfig;
-    
-    // Resetting to first page
-    if (direction === 'first') {
-      q = query(vendorsCollectionRef, orderBy(key, sortDirection), limit(PAGE_SIZE));
-      setPage(1);
-    } else if (direction === 'next' && lastVisible) {
-      q = query(vendorsCollectionRef, orderBy(key, sortDirection), startAfter(lastVisible), limit(PAGE_SIZE));
-    } else if (direction === 'prev' && firstVisible) {
-      q = query(vendorsCollectionRef, orderBy(key, sortDirection), endBefore(firstVisible), limitToLast(PAGE_SIZE));
-    } else {
-        // Fallback to first page if pagination state is weird
-        q = query(vendorsCollectionRef, orderBy(key, sortDirection), limit(PAGE_SIZE));
-        setPage(1);
-    }
-
     try {
-      const documentSnapshots = await getDocs(q);
-      const newVendors = documentSnapshots.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Vendor[];
-      
-      if (documentSnapshots.docs.length > 0) {
-        setVendorsState(newVendors);
-        setLastVisible(documentSnapshots.docs[documentSnapshots.docs.length - 1]);
-        setFirstVisible(documentSnapshots.docs[0]);
-        setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
-      } else {
-        if (direction === 'first') {
-          setVendorsState([]);
-        }
-        setIsLastPage(true);
-      }
+      const vendorsRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors`);
+      const customersRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/customers`);
+      const coaRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`);
+
+      const [vendorsSnap, customersSnap, coaSnap] = await Promise.all([
+        getDocs(vendorsRef),
+        getDocs(customersRef),
+        getDocs(coaRef),
+      ]);
+
+      setVendors(vendorsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor)));
+      setCustomers(customersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer)));
+      setChartOfAccounts(coaSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChartOfAccount)));
     } catch (error) {
-      console.error('VendorsPage: Error fetching vendors:', error);
-      setVendorsState([]);
+      console.error("Failed to fetch data for global store:", error);
       toast({
-        variant: 'destructive',
-        title: 'Error fetching vendors',
-        description: 'Could not load vendor data. Please check your connection and permissions.',
+          variant: "destructive",
+          title: "Data Sync Error",
+          description: "Could not sync all data for AI operations."
       });
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
-  }, [vendorsCollectionRef, lastVisible, firstVisible, sortConfig, toast]);
-  
-  // Fetch all data for Zustand store (for AI interlinking)
-  useEffect(() => {
-    if (!user || !firestore || !params.companyId) return;
-
-    const fetchAllData = async () => {
-      try {
-        const vendorsRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors`);
-        const customersRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/customers`);
-        const coaRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`);
-
-        const [vendorsSnap, customersSnap, coaSnap] = await Promise.all([
-          getDocs(vendorsRef),
-          getDocs(customersRef),
-          getDocs(coaRef),
-        ]);
-
-        setVendors(vendorsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor)));
-        setCustomers(customersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer)));
-        setChartOfAccounts(coaSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChartOfAccount)));
-      } catch (error) {
-        console.error("Failed to fetch data for global store:", error);
-        toast({
-            variant: "destructive",
-            title: "Data Sync Error",
-            description: "Could not sync all data for AI operations."
-        });
-      }
-    };
-    fetchAllData();
   }, [user, firestore, params.companyId, setVendors, setCustomers, setChartOfAccounts, toast]);
 
   useEffect(() => {
-    if (vendorsCollectionRef) {
-      fetchVendors('first');
+    fetchAllData();
+  }, [fetchAllData]);
+
+  const sortedAndFilteredVendors = useMemo(() => {
+    let filtered = [...vendors];
+
+    if (searchTerm) {
+        filtered = filtered.filter(vendor =>
+            vendor.vendorName && vendor.vendorName.toLowerCase().includes(searchTerm.toLowerCase())
+        );
     }
-  }, [vendorsCollectionRef, sortConfig, fetchVendors]);
 
-  const filteredVendors = useMemo(() => {
-    if (!searchTerm) return vendors;
-    return vendors.filter(vendor =>
-      vendor.vendorName && vendor.vendorName.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [vendors, searchTerm]);
+    filtered.sort((a, b) => {
+      const aValue = a[sortConfig.key];
+      const bValue = b[sortConfig.key];
 
-  const handleNextPage = () => {
-    if (!isLastPage) {
-      setPage(page + 1);
-      fetchVendors('next');
-    }
-  };
+      if (aValue < bValue) {
+        return sortConfig.direction === 'asc' ? -1 : 1;
+      }
+      if (aValue > bValue) {
+        return sortConfig.direction === 'asc' ? 1 : -1;
+      }
+      return 0;
+    });
 
-  const handlePrevPage = () => {
-    if (page > 1) {
-      setPage(page - 1);
-      fetchVendors('prev');
-    }
-  };
+    return filtered;
+  }, [vendors, searchTerm, sortConfig]);
 
-  const handleSort = (key: string) => {
+  const handleSort = (key: keyof Vendor) => {
     setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc' }));
-    setLastVisible(null);
-    setFirstVisible(null);
-    setPage(1);
-    setIsLastPage(false);
-    setSelectedRows([]);
   };
 
   const openAddModal = () => {
@@ -335,10 +259,11 @@ export default function VendorsPage() {
 
   const openEditModal = (vendor: Vendor) => {
     setSelectedVendor(vendor);
+    const account = chartOfAccounts.find(a => a.id === vendor.defaultExpenseAccountId);
     form.reset({
       vendorName: vendor.vendorName,
       vendorEmail: vendor.vendorEmail || '',
-      defaultExpenseAccount: vendor.defaultExpenseAccount || '',
+      defaultExpenseAccount: account?.accountName || vendor.defaultExpenseAccount || '',
     });
     setIsFormOpen(true);
   };
@@ -359,26 +284,33 @@ export default function VendorsPage() {
       batch.update(vendorRef, { defaultExpenseAccountId: accountId });
       batch.update(accountRef, { defaultVendorId: vendorToLink.id });
       await batch.commit();
+
+      const updatedVendor = { ...vendorToLink, defaultExpenseAccountId: accountId };
+      updateVendor(updatedVendor);
+      const account = chartOfAccounts.find(a => a.id === accountId);
+      if (account) {
+        useStore.getState().updateChartOfAccount({ ...account, defaultVendorId: vendorToLink.id });
+      }
   
       toast({ title: 'Link Successful', description: `Vendor "${vendorToLink.vendorName}" linked to account.` });
-      fetchVendors('first'); // Refresh data
     } catch (error) {
       console.error("Error linking account:", error);
       toast({ variant: 'destructive', title: 'Link Failed' });
+    } finally {
+        setVendorToLink(null);
     }
-    setVendorToLink(null);
   };
 
   const handleFormSubmit = async (values: VendorFormValues) => {
-    if (!vendorsCollectionRef || !firestore || !user) return;
-  
+    if (!firestore || !user) return;
+    
+    const vendorsCollectionRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors`);
     let accountId = '';
+
     if (values.defaultExpenseAccount) {
-      const coaRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`);
-      const q = query(coaRef, where('accountName', '==', values.defaultExpenseAccount));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        accountId = querySnapshot.docs[0].id;
+      const account = chartOfAccounts.find(a => a.accountName === values.defaultExpenseAccount);
+      if (account) {
+        accountId = account.id;
       } else {
         toast({
           variant: 'destructive',
@@ -389,7 +321,7 @@ export default function VendorsPage() {
       }
     }
   
-    const dataToSave = {
+    const dataToSave: Omit<Vendor, 'id'> = {
       companyId: params.companyId,
       vendorName: values.vendorName,
       vendorEmail: values.vendorEmail || '',
@@ -401,13 +333,14 @@ export default function VendorsPage() {
       if (selectedVendor) {
         const docRef = doc(vendorsCollectionRef, selectedVendor.id);
         await setDoc(docRef, dataToSave, { merge: true });
+        updateVendor({ ...dataToSave, id: selectedVendor.id });
         toast({ title: 'Vendor updated', description: `"${values.vendorName}" has been updated.` });
       } else {
-        await addDoc(vendorsCollectionRef, dataToSave);
+        const newDoc = await addDoc(vendorsCollectionRef, dataToSave);
+        setVendors([...vendors, { ...dataToSave, id: newDoc.id }]);
         toast({ title: 'Vendor created', description: `"${values.vendorName}" has been added.` });
       }
       setIsFormOpen(false);
-      fetchVendors('first'); 
       setSelectedRows([]);
     } catch (error) {
         console.error('Error saving vendor:', error);
@@ -422,19 +355,19 @@ export default function VendorsPage() {
   };
 
   const handleDeleteVendor = async () => {
-    if (!selectedVendor || !vendorsCollectionRef) return;
+    if (!selectedVendor || !user || !firestore) return;
+    const docRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors/${selectedVendor.id}`);
     try {
-      const docRef = doc(vendorsCollectionRef, selectedVendor.id);
       await deleteDoc(docRef);
+      setVendors(vendors.filter(v => v.id !== selectedVendor.id));
       toast({ title: 'Vendor deleted', description: `"${selectedVendor.vendorName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
       setSelectedVendor(null);
-      fetchVendors('first');
       setSelectedRows([]);
     } catch (error) {
         console.error('Error deleting vendor:', error);
         const permissionError = new FirestorePermissionError({
-            path: doc(vendorsCollectionRef, selectedVendor.id).path,
+            path: docRef.path,
             operation: 'delete',
           });
         errorEmitter.emit('permission-error', permissionError);
@@ -443,18 +376,18 @@ export default function VendorsPage() {
   };
 
   const handleBatchDelete = async () => {
-    if (!firestore || !vendorsCollectionRef || selectedRows.length === 0) return;
+    if (!firestore || !user || selectedRows.length === 0) return;
     const batch = writeBatch(firestore);
     selectedRows.forEach(vendorId => {
-      const docRef = doc(vendorsCollectionRef, vendorId);
+      const docRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors/${vendorId}`);
       batch.delete(docRef);
     });
     try {
       await batch.commit();
+      setVendors(vendors.filter(v => !selectedRows.includes(v.id)));
       toast({ title: `${selectedRows.length} vendors deleted.` });
       setIsBatchDeleteConfirmOpen(false);
       setSelectedRows([]);
-      fetchVendors('first');
     } catch (error) {
       console.error('Error batch deleting vendors:', error);
       toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete the selected vendors. Check permissions.' });
@@ -463,7 +396,7 @@ export default function VendorsPage() {
 
   const handleSelectAll = (checked: boolean | string) => {
     if (checked) {
-      setSelectedRows(filteredVendors.map(v => v.id));
+      setSelectedRows(sortedAndFilteredVendors.map(v => v.id));
     } else {
       setSelectedRows([]);
     }
@@ -526,7 +459,7 @@ export default function VendorsPage() {
                 <TableRow>
                   <TableHead padding="checkbox" className="w-[50px] px-4">
                     <Checkbox
-                      checked={selectedRows.length > 0 && selectedRows.length === filteredVendors.length && filteredVendors.length > 0}
+                      checked={selectedRows.length > 0 && selectedRows.length === sortedAndFilteredVendors.length && sortedAndFilteredVendors.length > 0}
                       onCheckedChange={handleSelectAll}
                       aria-label="Select all"
                     />
@@ -541,8 +474,8 @@ export default function VendorsPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow><TableCell colSpan={6} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
-                ) : filteredVendors.length > 0 ? (
-                  filteredVendors.map((vendor) => (
+                ) : sortedAndFilteredVendors.length > 0 ? (
+                  sortedAndFilteredVendors.map((vendor) => (
                     <TableRow key={vendor.id} data-state={selectedRows.includes(vendor.id) && "selected"}>
                       <TableCell padding="checkbox" className="px-4">
                         <Checkbox
@@ -553,7 +486,7 @@ export default function VendorsPage() {
                       </TableCell>
                       <TableCell className="font-medium">{vendor.vendorName}</TableCell>
                       <TableCell>{vendor.vendorEmail || 'N/A'}</TableCell>
-                      <TableCell>{vendor.defaultExpenseAccount || 'N/A'}</TableCell>
+                      <TableCell>{(chartOfAccounts.find(a => a.id === vendor.defaultExpenseAccountId))?.accountName || vendor.defaultExpenseAccount || 'N/A'}</TableCell>
                       <TableCell>
                         {vendor.defaultExpenseAccountId && (
                           <LinkIcon className="h-4 w-4 text-accent" />
@@ -576,10 +509,6 @@ export default function VendorsPage() {
                 )}
               </TableBody>
             </Table>
-          </div>
-          <div className="flex items-center justify-end space-x-2 py-4">
-            <Button variant="outline" size="sm" onClick={handlePrevPage} disabled={page <= 1 || isLoading}>Previous</Button>
-            <Button variant="outline" size="sm" onClick={handleNextPage} disabled={isLastPage || isLoading}>Next</Button>
           </div>
         </CardContent>
       </Card>

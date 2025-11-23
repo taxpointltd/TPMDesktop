@@ -210,7 +210,6 @@ export default function ChartOfAccountsPage() {
     if (coaCollectionRef) {
       fetchAccounts('first');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coaCollectionRef, sortConfig]);
 
   const filteredAccounts = useMemo(() => {
@@ -434,10 +433,10 @@ export default function ChartOfAccountsPage() {
                     />
                   </TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('accountName')}>
-                    <div className="flex items-center">Account Name {getSortIcon('accountName')}</div>
+                    <div className="flex items-center">Account {getSortIcon('accountName')}</div>
                   </TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('accountNumber')}>
-                    <div className="flex items-center">Account Number {getSortIcon('accountNumber')}</div>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('subAccountName')}>
+                    <div className="flex items-center">Sub-Account {getSortIcon('subAccountName')}</div>
                   </TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('accountType')}>
                     <div className="flex items-center">Account Type {getSortIcon('accountType')}</div>
@@ -464,9 +463,13 @@ export default function ChartOfAccountsPage() {
                         />
                       </TableCell>
                       <TableCell className="font-medium">
-                        {account.accountName}
+                        {account.accountNumber ? `${account.accountNumber} ` : ''}{account.accountName}
                       </TableCell>
-                      <TableCell>{account.accountNumber || 'N/A'}</TableCell>
+                      <TableCell>
+                        {account.subAccountNumber || account.subAccountName ? 
+                        `${account.subAccountNumber ? `${account.subAccountNumber} ` : ''}${account.subAccountName || ''}` 
+                        : 'N/A'}
+                      </TableCell>
                       <TableCell>{account.accountType || 'N/A'}</TableCell>
                       <TableCell>
                         {account.description || 'N/A'}

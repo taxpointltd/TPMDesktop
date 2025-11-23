@@ -68,15 +68,28 @@
           "type": "string",
           "description": "Reference to Company. (Relationship: Company 1:N Vendor)"
         },
-        "name": {
+        "Name": {
           "type": "string",
           "description": "Name of the vendor."
+        },
+        "Contact Email": {
+            "type": "string",
+            "format": "email",
+            "description": "Contact email for the vendor."
+        },
+        "Default Expense Account": {
+            "type": "string",
+            "description": "The default expense account name for this vendor."
+        },
+        "defaultExpenseAccountId": {
+            "type": "string",
+            "description": "The ID of the default expense account (from ChartOfAccount)."
         }
       },
       "required": [
         "id",
         "companyId",
-        "name"
+        "Name"
       ]
     },
     "Customer": {
@@ -96,6 +109,19 @@
         "name": {
           "type": "string",
           "description": "Name of the customer."
+        },
+        "contactEmail": {
+            "type": "string",
+            "format": "email",
+            "description": "Contact email for the customer."
+        },
+        "defaultRevenueAccount": {
+            "type": "string",
+            "description": "The default revenue account name for this customer."
+        },
+        "defaultRevenueAccountId": {
+            "type": "string",
+            "description": "The ID of the default revenue account (from ChartOfAccount)."
         }
       },
       "required": [
@@ -125,13 +151,35 @@
         "accountNumber": {
           "type": "string",
           "description": "Account number."
+        },
+        "accountType": {
+            "type": "string",
+            "description": "Type of account (e.g., Asset, Liability)."
+        },
+        "accountDescription": {
+            "type": "string",
+            "description": "A description of the account."
+        },
+        "subAccountName": {
+            "type": "string"
+        },
+        "subAccountNumber": {
+            "type": "string"
+        },
+        "description": {
+            "type": "string"
+        },
+        "defaultVendorId": {
+            "type": "string"
+        },
+        "defaultCustomerId": {
+            "type": "string"
         }
       },
       "required": [
         "id",
         "companyId",
-        "accountName",
-        "accountNumber"
+        "accountName"
       ]
     },
     "Transaction": {
@@ -172,13 +220,18 @@
         "description": {
           "type": "string",
           "description": "Description of the transaction."
+        },
+        "memo": {
+            "type": "string",
+            "description": "A memo for the transaction."
         }
       },
       "required": [
         "id",
         "companyId",
         "date",
-        "amount"
+        "amount",
+        "description"
       ]
     }
   },

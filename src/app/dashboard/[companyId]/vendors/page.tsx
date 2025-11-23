@@ -76,18 +76,13 @@ import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import { Vendor } from '@/lib/types';
 
-interface Vendor {
-  id: string;
-  name: string;
-  contactEmail?: string;
-  defaultExpenseAccount?: string;
-}
 
 const vendorSchema = z.object({
-  name: z.string().min(1, 'Vendor name is required.'),
-  contactEmail: z.string().email('Invalid email address.').optional().or(z.literal('')),
-  defaultExpenseAccount: z.string().optional(),
+  'Name': z.string().min(1, 'Vendor name is required.'),
+  'Contact Email': z.string().email('Invalid email address.').optional().or(z.literal('')),
+  'Default Expense Account': z.string().optional(),
 });
 
 type VendorFormValues = z.infer<typeof vendorSchema>;
@@ -109,7 +104,7 @@ export default function VendorsPage() {
   const [sortConfig, setSortConfig] = useState<{
     key: string;
     direction: 'asc' | 'desc';
-  }>({ key: 'name', direction: 'asc' });
+  }>({ key: 'Name', direction: 'asc' });
 
   // State for modals
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -119,9 +114,9 @@ export default function VendorsPage() {
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(vendorSchema),
     defaultValues: {
-      name: '',
-      contactEmail: '',
-      defaultExpenseAccount: '',
+      'Name': '',
+      'Contact Email': '',
+      'Default Expense Account': '',
     },
   });
 
@@ -136,15 +131,13 @@ export default function VendorsPage() {
 
     let q;
     const { key, direction: sortDirection } = sortConfig;
-    const mappedKey = key === 'name' ? 'Name' : key === 'contactEmail' ? 'Contact Email' : 'Default Expense Account';
-
 
     if (direction === 'next' && lastVisible) {
-      q = query(vendorsCollectionRef, orderBy(mappedKey, sortDirection), startAfter(lastVisible), limit(PAGE_SIZE));
+      q = query(vendorsCollectionRef, orderBy(key, sortDirection), startAfter(lastVisible), limit(PAGE_SIZE));
     } else if (direction === 'prev' && firstVisible) {
-      q = query(vendorsCollectionRef, orderBy(mappedKey, sortDirection), endBefore(firstVisible), limitToLast(PAGE_SIZE));
+      q = query(vendorsCollectionRef, orderBy(key, sortDirection), endBefore(firstVisible), limitToLast(PAGE_SIZE));
     } else {
-      q = query(vendorsCollectionRef, orderBy(mappedKey, sortDirection), limit(PAGE_SIZE));
+      q = query(vendorsCollectionRef, orderBy(key, sortDirection), limit(PAGE_SIZE));
       setPage(1);
     }
 
@@ -152,13 +145,14 @@ export default function VendorsPage() {
       const documentSnapshots = await getDocs(q);
       const newVendors = documentSnapshots.docs.map((doc: DocumentData) => ({
         id: doc.id,
-        name: doc.data()['Name'] || 'N/A',
-        contactEmail: doc.data()['Contact Email'],
-        defaultExpenseAccount: doc.data()['Default Expense Account'],
+        'Name': doc.data()['Name'] || 'N/A',
+        'Contact Email': doc.data()['Contact Email'],
+        'Default Expense Account': doc.data()['Default Expense Account'],
+        companyId: doc.data()['companyId'],
       }));
 
       if (documentSnapshots.docs.length > 0) {
-        setVendors(newVendors);
+        setVendors(newVendors as Vendor[]);
         setLastVisible(documentSnapshots.docs[documentSnapshots.docs.length - 1]);
         setFirstVisible(documentSnapshots.docs[0]);
         setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
@@ -211,16 +205,16 @@ export default function VendorsPage() {
 
   const openAddModal = () => {
     setSelectedVendor(null);
-    form.reset({ name: '', contactEmail: '', defaultExpenseAccount: '' });
+    form.reset({ 'Name': '', 'Contact Email': '', 'Default Expense Account': '' });
     setIsFormOpen(true);
   };
 
   const openEditModal = (vendor: Vendor) => {
     setSelectedVendor(vendor);
     form.reset({
-      name: vendor.name,
-      contactEmail: vendor.contactEmail || '',
-      defaultExpenseAccount: vendor.defaultExpenseAccount || '',
+      'Name': vendor['Name'],
+      'Contact Email': vendor['Contact Email'] || '',
+      'Default Expense Account': vendor['Default Expense Account'] || '',
     });
     setIsFormOpen(true);
   };
@@ -234,42 +228,30 @@ export default function VendorsPage() {
     if (!vendorsCollectionRef) return;
 
     const dataToSave = {
-      'Name': values.name,
-      'Contact Email': values.contactEmail || null,
-      'Default Expense Account': values.defaultExpenseAccount || null,
-      'companyId': params.companyId,
+      ...values,
+      companyId: params.companyId,
     };
 
     try {
       if (selectedVendor) {
-        // Update existing vendor
         const docRef = doc(vendorsCollectionRef, selectedVendor.id);
-        setDoc(docRef, dataToSave, { merge: true }).catch(async (error) => {
-            const permissionError = new FirestorePermissionError({
-                path: docRef.path,
-                operation: 'update',
-                requestResourceData: dataToSave,
-            });
-            errorEmitter.emit('permission-error', permissionError);
-        });
-        toast({ title: 'Vendor updated', description: `"${values.name}" has been updated.` });
+        await setDoc(docRef, dataToSave, { merge: true });
+        toast({ title: 'Vendor updated', description: `"${values['Name']}" has been updated.` });
       } else {
-        // Create new vendor
-        addDoc(vendorsCollectionRef, dataToSave).catch(async (error) => {
-            const permissionError = new FirestorePermissionError({
-                path: vendorsCollectionRef.path,
-                operation: 'create',
-                requestResourceData: dataToSave,
-            });
-            errorEmitter.emit('permission-error', permissionError);
-        });
-        toast({ title: 'Vendor created', description: `"${values.name}" has been added.` });
+        await addDoc(vendorsCollectionRef, dataToSave);
+        toast({ title: 'Vendor created', description: `"${values['Name']}" has been added.` });
       }
       setIsFormOpen(false);
-      fetchVendors('first'); // Refresh data
+      fetchVendors('first'); 
     } catch (error) {
         console.error('Error saving vendor:', error);
-        toast({ variant: 'destructive', title: 'Save failed', description: 'An unexpected error occurred.' });
+        const permissionError = new FirestorePermissionError({
+            path: selectedVendor ? doc(vendorsCollectionRef, selectedVendor.id).path : vendorsCollectionRef.path,
+            operation: selectedVendor ? 'update' : 'create',
+            requestResourceData: dataToSave,
+          });
+        errorEmitter.emit('permission-error', permissionError);
+        toast({ variant: 'destructive', title: 'Save failed', description: 'Could not save the vendor. Check permissions.' });
     }
   };
 
@@ -278,10 +260,10 @@ export default function VendorsPage() {
     try {
       const docRef = doc(vendorsCollectionRef, selectedVendor.id);
       await deleteDoc(docRef);
-      toast({ title: 'Vendor deleted', description: `"${selectedVendor.name}" has been deleted.` });
+      toast({ title: 'Vendor deleted', description: `"${selectedVendor['Name']}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
       setSelectedVendor(null);
-      fetchVendors('first'); // Refresh data
+      fetchVendors('first'); 
     } catch (error) {
         console.error('Error deleting vendor:', error);
         const permissionError = new FirestorePermissionError({
@@ -318,9 +300,9 @@ export default function VendorsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('name')}><div className="flex items-center">Name {getSortIcon('name')}</div></TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('contactEmail')}><div className="flex items-center">Contact Email {getSortIcon('contactEmail')}</div></TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('defaultExpenseAccount')}><div className="flex items-center">Default Expense Account {getSortIcon('defaultExpenseAccount')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('Name')}><div className="flex items-center">Name {getSortIcon('Name')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('Contact Email')}><div className="flex items-center">Contact Email {getSortIcon('Contact Email')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('Default Expense Account')}><div className="flex items-center">Default Expense Account {getSortIcon('Default Expense Account')}</div></TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -330,9 +312,9 @@ export default function VendorsPage() {
                 ) : vendors.length > 0 ? (
                   vendors.map((vendor) => (
                     <TableRow key={vendor.id}>
-                      <TableCell className="font-medium">{vendor.name}</TableCell>
-                      <TableCell>{vendor.contactEmail || 'N/A'}</TableCell>
-                      <TableCell>{vendor.defaultExpenseAccount || 'N/A'}</TableCell>
+                      <TableCell className="font-medium">{vendor['Name']}</TableCell>
+                      <TableCell>{vendor['Contact Email'] || 'N/A'}</TableCell>
+                      <TableCell>{vendor['Default Expense Account'] || 'N/A'}</TableCell>
                       <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Open menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
@@ -368,7 +350,7 @@ export default function VendorsPage() {
             <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-4 py-4">
               <FormField
                 control={form.control}
-                name="name"
+                name="Name"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Vendor Name</FormLabel>
@@ -379,7 +361,7 @@ export default function VendorsPage() {
               />
               <FormField
                 control={form.control}
-                name="contactEmail"
+                name="Contact Email"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Contact Email (Optional)</FormLabel>
@@ -390,7 +372,7 @@ export default function VendorsPage() {
               />
               <FormField
                 control={form.control}
-                name="defaultExpenseAccount"
+                name="Default Expense Account"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Default Expense Account (Optional)</FormLabel>
@@ -416,7 +398,7 @@ export default function VendorsPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone. This will permanently delete the vendor "{selectedVendor?.name}".</AlertDialogDescription>
+            <AlertDialogDescription>This action cannot be undone. This will permanently delete the vendor "{selectedVendor?.['Name']}".</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

@@ -37,13 +37,18 @@ const ImportCard = ({ title, description, icon: Icon, sampleUrl, onImport }: Imp
     if (!file) return;
     setIsImporting(true);
     setProgress(0);
+    // Simulate progress for user feedback
+    const interval = setInterval(() => {
+      setProgress(prev => (prev < 90 ? prev + 10 : prev));
+    }, 200);
     try {
       await onImport(file);
+      setProgress(100);
     } finally {
+      clearInterval(interval);
       setIsImporting(false);
       setFile(null);
-      setProgress(100);
-      setTimeout(() => setProgress(0), 2000);
+      setTimeout(() => setProgress(0), 3000);
     }
   };
 
@@ -76,20 +81,16 @@ const ImportCard = ({ title, description, icon: Icon, sampleUrl, onImport }: Imp
   );
 };
 
-// Simple sanitation function (can be expanded)
-const sanitizeRow = (row: any) => {
+const sanitizeRow = (row: any, companyId: string) => {
   const sanitized: { [key: string]: any } = {};
   for (const key in row) {
-    if (typeof row[key] === 'string') {
-      sanitized[key] = row[key].trim();
-    } else {
-      sanitized[key] = row[key];
+    if (Object.prototype.hasOwnProperty.call(row, key)) {
+      const trimmedKey = key.trim();
+      const value = row[key];
+      sanitized[trimmedKey] = typeof value === 'string' ? value.trim() : value;
     }
   }
-  // Ensure required fields exist, even if empty
-  if (row.name) sanitized.name = sanitized.name || 'Unnamed';
-  if (row.accountName) sanitized.accountName = sanitized.accountName || 'Unnamed Account';
-
+  sanitized.companyId = companyId;
   return sanitized;
 };
 
@@ -101,7 +102,14 @@ export default function DataImportPage() {
   const { toast } = useToast();
 
   const handleDataImport = async (file: File, type: 'vendors' | 'customers' | 'chartOfAccounts') => {
-    if (!user || !firestore || !companyId) return;
+    if (!user || !firestore || !companyId) {
+        toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: 'User not authenticated or company not found.'
+        });
+        return;
+    }
 
     try {
       const data = await file.arrayBuffer();
@@ -109,6 +117,15 @@ export default function DataImportPage() {
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
       const json: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+      if (json.length === 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Import Failed',
+          description: 'The file is empty or in an incorrect format.',
+        });
+        return;
+      }
 
       const collectionPath = `/users/${user.uid}/companies/${companyId}/${type}`;
       const collectionRef = collection(firestore, collectionPath);
@@ -119,7 +136,7 @@ export default function DataImportPage() {
         const chunk = json.slice(i, i + BATCH_SIZE);
         chunk.forEach((row) => {
           const docRef = doc(collectionRef);
-          const sanitizedData = sanitizeRow({ ...row, companyId });
+          const sanitizedData = sanitizeRow(row, companyId);
           batch.set(docRef, sanitizedData);
         });
         await batch.commit();
@@ -127,14 +144,14 @@ export default function DataImportPage() {
 
       toast({
         title: 'Import Successful',
-        description: `Your ${type.replace(/([A-Z])/g, ' $1').toLowerCase()} have been imported successfully.`,
+        description: `${json.length} ${type.replace(/([A-Z])/g, ' $1')} have been imported.`,
       });
     } catch (error) {
       console.error('Error importing data:', error);
       toast({
         variant: 'destructive',
         title: 'Import Failed',
-        description: 'There was an error importing your data. Please check the file format and try again.',
+        description: 'An error occurred during import. Please check the file format and console for details.',
       });
     }
   };

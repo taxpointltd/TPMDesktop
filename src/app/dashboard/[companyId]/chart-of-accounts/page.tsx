@@ -76,14 +76,8 @@ import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import { ChartOfAccount } from '@/lib/types';
 
-interface ChartOfAccount {
-  id: string;
-  accountName: string;
-  accountNumber?: string;
-  accountType?: string;
-  accountDescription?: string;
-}
 
 const accountSchema = z.object({
     accountName: z.string().min(1, 'Account name is required.'),
@@ -176,10 +170,11 @@ export default function ChartOfAccountsPage() {
           accountNumber: doc.data().accountNumber,
           accountType: doc.data().accountType,
           accountDescription: doc.data().accountDescription,
+          companyId: doc.data().companyId,
         }));
         
         if (!documentSnapshots.empty) {
-          setAccounts(newAccounts);
+          setAccounts(newAccounts as ChartOfAccount[]);
           setLastVisible(
             documentSnapshots.docs[documentSnapshots.docs.length - 1]
           );
@@ -260,10 +255,7 @@ export default function ChartOfAccountsPage() {
     if (!coaCollectionRef) return;
 
     const dataToSave = {
-      accountName: values.accountName,
-      accountNumber: values.accountNumber || null,
-      accountType: values.accountType || null,
-      accountDescription: values.accountDescription || null,
+      ...values,
       companyId: params.companyId,
     };
 

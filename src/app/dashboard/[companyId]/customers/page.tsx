@@ -76,13 +76,7 @@ import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
-
-interface Customer {
-  id: string;
-  name: string;
-  contactEmail?: string;
-  defaultRevenueAccount?: string;
-}
+import { Customer } from '@/lib/types';
 
 const customerSchema = z.object({
   name: z.string().min(1, 'Customer name is required.'),
@@ -153,10 +147,11 @@ export default function CustomersPage() {
         name: doc.data()['name'] || 'N/A',
         contactEmail: doc.data()['contactEmail'],
         defaultRevenueAccount: doc.data()['defaultRevenueAccount'],
+        companyId: doc.data()['companyId'],
       }));
 
       if (documentSnapshots.docs.length > 0) {
-        setCustomers(newCustomers);
+        setCustomers(newCustomers as Customer[]);
         setLastVisible(documentSnapshots.docs[documentSnapshots.docs.length - 1]);
         setFirstVisible(documentSnapshots.docs[0]);
         setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
@@ -232,10 +227,8 @@ export default function CustomersPage() {
     if (!customersCollectionRef) return;
 
     const dataToSave = {
-      'name': values.name,
-      'contactEmail': values.contactEmail || null,
-      'defaultRevenueAccount': values.defaultRevenueAccount || null,
-      'companyId': params.companyId,
+      ...values,
+      companyId: params.companyId,
     };
 
     try {

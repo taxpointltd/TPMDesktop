@@ -225,10 +225,14 @@ export default function VendorsPage() {
   const handleFormSubmit = async (values: VendorFormValues) => {
     if (!vendorsCollectionRef) return;
 
-    const dataToSave = {
-      ...values,
-      companyId: params.companyId,
-    };
+    const dataToSave: Omit<Vendor, 'vendorId'> = {
+        companyId: params.companyId,
+        vendorName: values.vendorName,
+        vendorEmail: values.vendorEmail || '',
+        defaultExpenseAccount: values.defaultExpenseAccount || '',
+        defaultExpenseAccountId: selectedVendor?.defaultExpenseAccountId || '',
+        transactions: selectedVendor?.transactions || [],
+      };
 
     try {
       if (selectedVendor) {

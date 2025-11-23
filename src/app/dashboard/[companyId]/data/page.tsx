@@ -92,30 +92,44 @@ const mapAndValidateRow = (row: any, companyId: string, type: 'vendors' | 'custo
       }
     }
   
-    let mappedData: any = { companyId };
-  
     switch (type) {
       case 'vendors':
         if (!sanitized['Vendor Name']) return null; // Required field
-        mappedData.vendorName = sanitized['Vendor Name'];
-        mappedData.vendorEmail = sanitized['Contact Email'];
-        mappedData.defaultExpenseAccount = sanitized['Default Expense Account'];
-        return mappedData as Partial<Vendor>;
+        const vendor: Omit<Vendor, 'vendorId'> = {
+            companyId: companyId,
+            vendorName: sanitized['Vendor Name'] || '',
+            vendorEmail: sanitized['Contact Email'] || '',
+            defaultExpenseAccount: sanitized['Default Expense Account'] || '',
+            defaultExpenseAccountId: '',
+            transactions: [],
+        };
+        return vendor;
       case 'customers':
         if (!sanitized['Customer Name']) return null; // Required field
-        mappedData.customerName = sanitized['Customer Name'];
-        mappedData.customerEmail = sanitized['Contact Email'];
-        mappedData.defaultRevenueAccount = sanitized['Default Revenue Account'];
-        return mappedData as Partial<Customer>;
+        const customer: Omit<Customer, 'customerId'> = {
+            companyId: companyId,
+            customerName: sanitized['Customer Name'] || '',
+            customerEmail: sanitized['Contact Email'] || '',
+            defaultRevenueAccount: sanitized['Default Revenue Account'] || '',
+            defaultRevenueAccountId: '',
+            transactions: [],
+        };
+        return customer;
       case 'chartOfAccounts':
         if (!sanitized['Account Name']) return null; // Required field
-        mappedData.accountName = sanitized['Account Name'];
-        mappedData.accountNumber = sanitized['Account Number'];
-        mappedData.accountType = sanitized['Account Type'];
-        mappedData.description = sanitized['Description'];
-        mappedData.subAccountName = sanitized['Sub Account Name'];
-        mappedData.subAccountNumber = sanitized['Sub Account Number'];
-        return mappedData as Partial<ChartOfAccount>;
+        const account: Omit<ChartOfAccount, 'accountId'> = {
+            companyId: companyId,
+            accountName: sanitized['Account Name'] || '',
+            accountNumber: sanitized['Account Number'] || '',
+            accountType: sanitized['Account Type'] || '',
+            description: sanitized['Description'] || '',
+            subAccountName: sanitized['Sub Account Name'] || '',
+            subAccountNumber: sanitized['Sub Account Number'] || '',
+            defaultVendorId: '',
+            defaultCustomerId: '',
+            transactions: [],
+        };
+        return account;
       default:
         return null;
     }

@@ -224,10 +224,14 @@ export default function CustomersPage() {
   const handleFormSubmit = async (values: CustomerFormValues) => {
     if (!customersCollectionRef) return;
 
-    const dataToSave = {
-      ...values,
-      companyId: params.companyId,
-    };
+    const dataToSave: Omit<Customer, 'customerId'> = {
+        companyId: params.companyId,
+        customerName: values.customerName,
+        customerEmail: values.customerEmail || '',
+        defaultRevenueAccount: values.defaultRevenueAccount || '',
+        defaultRevenueAccountId: selectedCustomer?.defaultRevenueAccountId || '',
+        transactions: selectedCustomer?.transactions || [],
+      };
 
     try {
       if (selectedCustomer) {

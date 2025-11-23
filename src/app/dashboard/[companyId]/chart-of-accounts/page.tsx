@@ -258,9 +258,17 @@ export default function ChartOfAccountsPage() {
   const handleFormSubmit = async (values: AccountFormValues) => {
     if (!coaCollectionRef) return;
 
-    const dataToSave = {
-      ...values,
+    const dataToSave: Omit<ChartOfAccount, 'accountId'> = {
       companyId: params.companyId,
+      accountName: values.accountName,
+      accountNumber: values.accountNumber || '',
+      accountType: values.accountType || '',
+      description: values.description || '',
+      subAccountName: values.subAccountName || '',
+      subAccountNumber: values.subAccountNumber || '',
+      defaultVendorId: selectedAccount?.defaultVendorId || '',
+      defaultCustomerId: selectedAccount?.defaultCustomerId || '',
+      transactions: selectedAccount?.transactions || [],
     };
 
     try {

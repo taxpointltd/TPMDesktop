@@ -66,8 +66,8 @@ const interlinkPrompt = ai.definePrompt({
   prompt: `You are an expert accounting system AI. Your task is to analyze lists of vendors, customers, and a chart of accounts (COA) to establish links between them.
 
 You will be given three JSON strings:
-1.  Vendors: Contains a list of vendors, including their ID and the text of their default expense account.
-2.  Customers: Contains a list of customers, including their ID and the text of their default revenue account.
+1.  Vendors: Contains a list of vendors, including their ID, name, and the text of their default expense account.
+2.  Customers: Contains a list of customers, including their ID, name, and the text of their default revenue account.
 3.  Chart of Accounts: Contains the full chart of accounts, with IDs, names, numbers, and sub-account details.
 
 Your goal is to match the 'defaultExpenseAccount' from each vendor and the 'defaultRevenueAccount' from each customer to the most appropriate account in the COA.
@@ -75,7 +75,7 @@ Your goal is to match the 'defaultExpenseAccount' from each vendor and the 'defa
 Matching Priority:
 1.  First, try to match the text with the 'subAccountName' or 'subAccountNumber' in the COA.
 2.  If no sub-account matches, try to match the text with the 'accountName' or 'accountNumber' in the COA.
-3.  The match should be as exact as possible.
+3.  The match should be as exact as possible. Consider the vendor/customer name for context if the account name is ambiguous.
 
 Based on your matches, you will generate two lists:
 -   'vendorLinks': A list linking a 'vendorId' to the matched 'chartOfAccountId'.
@@ -103,6 +103,14 @@ const interlinkAccountsFlow = ai.defineFlow(
     outputSchema: InterlinkAccountsOutputSchema,
   },
   async (input) => {
+    // Handle cases where vendors or customers might be empty arrays
+    const vendors = JSON.parse(input.vendors);
+    const customers = JSON.parse(input.customers);
+
+    if (vendors.length === 0 && customers.length === 0) {
+      return { vendorLinks: [], customerLinks: [] };
+    }
+    
     const { output } = await interlinkPrompt(input);
     return output!;
   }

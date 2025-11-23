@@ -181,10 +181,10 @@ export default function ChartOfAccountsPage() {
   }, [chartOfAccounts, searchTerm, sortConfig]);
 
   const handleRunInterlink = async () => {
-    if (!firestore || !user || !vendors.length || !customers.length || !chartOfAccounts.length) {
+    if (!firestore || !user || !chartOfAccounts.length || (!vendors.length && !customers.length)) {
       toast({
         title: 'Not Ready',
-        description: 'Ensure vendors, customers, and chart of accounts are loaded before running AI interlink.',
+        description: 'Ensure chart of accounts and either vendors or customers are loaded before running AI interlink.',
         variant: 'destructive',
       });
       return;

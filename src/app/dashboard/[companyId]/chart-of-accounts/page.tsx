@@ -83,7 +83,9 @@ const accountSchema = z.object({
     accountName: z.string().min(1, 'Account name is required.'),
     accountNumber: z.string().optional(),
     accountType: z.string().optional(),
-    accountDescription: z.string().optional(),
+    description: z.string().optional(),
+    subAccountName: z.string().optional(),
+    subAccountNumber: z.string().optional(),
   });
 
 type AccountFormValues = z.infer<typeof accountSchema>;
@@ -118,7 +120,9 @@ export default function ChartOfAccountsPage() {
         accountName: '',
         accountNumber: '',
         accountType: '',
-        accountDescription: '',
+        description: '',
+        subAccountName: '',
+        subAccountNumber: '',
     },
   });
 
@@ -164,17 +168,13 @@ export default function ChartOfAccountsPage() {
 
       try {
         const documentSnapshots = await getDocs(q);
-        const newAccounts = documentSnapshots.docs.map((doc: DocumentData) => ({
-          id: doc.id,
-          accountName: doc.data().accountName || 'N/A',
-          accountNumber: doc.data().accountNumber,
-          accountType: doc.data().accountType,
-          accountDescription: doc.data().accountDescription,
-          companyId: doc.data().companyId,
-        }));
+        const newAccounts = documentSnapshots.docs.map((doc) => ({
+          accountId: doc.id,
+          ...doc.data(),
+        })) as ChartOfAccount[];
         
         if (!documentSnapshots.empty) {
-          setAccounts(newAccounts as ChartOfAccount[]);
+          setAccounts(newAccounts);
           setLastVisible(
             documentSnapshots.docs[documentSnapshots.docs.length - 1]
           );
@@ -205,7 +205,8 @@ export default function ChartOfAccountsPage() {
     if (coaCollectionRef) {
       fetchAccounts('first');
     }
-  }, [coaCollectionRef, sortConfig, fetchAccounts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coaCollectionRef, sortConfig]);
 
 
   const handleNextPage = () => {
@@ -232,7 +233,7 @@ export default function ChartOfAccountsPage() {
   
   const openAddModal = () => {
     setSelectedAccount(null);
-    form.reset({ accountName: '', accountNumber: '', accountType: '', accountDescription: '' });
+    form.reset({ accountName: '', accountNumber: '', accountType: '', description: '', subAccountName: '', subAccountNumber: '' });
     setIsFormOpen(true);
   };
 
@@ -242,7 +243,9 @@ export default function ChartOfAccountsPage() {
         accountName: account.accountName,
         accountNumber: account.accountNumber || '',
         accountType: account.accountType || '',
-        accountDescription: account.accountDescription || '',
+        description: account.description || '',
+        subAccountName: account.subAccountName || '',
+        subAccountNumber: account.subAccountNumber || '',
     });
     setIsFormOpen(true);
   };
@@ -262,7 +265,7 @@ export default function ChartOfAccountsPage() {
 
     try {
       if (selectedAccount) {
-        const docRef = doc(coaCollectionRef, selectedAccount.id);
+        const docRef = doc(coaCollectionRef, selectedAccount.accountId);
         await setDoc(docRef, dataToSave, { merge: true });
         toast({ title: 'Account updated', description: `"${values.accountName}" has been updated.` });
       } else {
@@ -274,7 +277,7 @@ export default function ChartOfAccountsPage() {
     } catch (error) {
         console.error('Error saving account:', error);
         const permissionError = new FirestorePermissionError({
-            path: selectedAccount ? doc(coaCollectionRef, selectedAccount.id).path : coaCollectionRef.path,
+            path: selectedAccount ? doc(coaCollectionRef, selectedAccount.accountId).path : coaCollectionRef.path,
             operation: selectedAccount ? 'update' : 'create',
             requestResourceData: dataToSave,
           });
@@ -286,7 +289,7 @@ export default function ChartOfAccountsPage() {
   const handleDeleteAccount = async () => {
     if (!selectedAccount || !coaCollectionRef) return;
     try {
-      const docRef = doc(coaCollectionRef, selectedAccount.id);
+      const docRef = doc(coaCollectionRef, selectedAccount.accountId);
       await deleteDoc(docRef);
       toast({ title: 'Account deleted', description: `"${selectedAccount.accountName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
@@ -295,7 +298,7 @@ export default function ChartOfAccountsPage() {
     } catch (error) {
         console.error('Error deleting account:', error);
         const permissionError = new FirestorePermissionError({
-            path: doc(coaCollectionRef, selectedAccount.id).path,
+            path: doc(coaCollectionRef, selectedAccount.accountId).path,
             operation: 'delete',
           });
         errorEmitter.emit('permission-error', permissionError);
@@ -365,14 +368,14 @@ export default function ChartOfAccountsPage() {
                   </TableRow>
                 ) : accounts && accounts.length > 0 ? (
                   accounts.map((account) => (
-                    <TableRow key={account.id}>
+                    <TableRow key={account.accountId}>
                       <TableCell className="font-medium">
                         {account.accountName}
                       </TableCell>
                       <TableCell>{account.accountNumber || 'N/A'}</TableCell>
                       <TableCell>{account.accountType || 'N/A'}</TableCell>
                       <TableCell>
-                        {account.accountDescription || 'N/A'}
+                        {account.description || 'N/A'}
                       </TableCell>
                       <TableCell>
                       <DropdownMenu>
@@ -460,11 +463,33 @@ export default function ChartOfAccountsPage() {
               />
                <FormField
                 control={form.control}
-                name="accountDescription"
+                name="description"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Account Description (Optional)</FormLabel>
                     <FormControl><Input placeholder="e.g., For office supply purchases" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+                <FormField
+                control={form.control}
+                name="subAccountName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Sub Account Name (Optional)</FormLabel>
+                    <FormControl><Input placeholder="e.g., Pens" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="subAccountNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Sub Account Number (Optional)</FormLabel>
+                    <FormControl><Input placeholder="e.g., 60210.1" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

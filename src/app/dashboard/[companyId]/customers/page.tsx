@@ -79,8 +79,8 @@ import { FirestorePermissionError } from '@/firebase/errors';
 import { Customer } from '@/lib/types';
 
 const customerSchema = z.object({
-  name: z.string().min(1, 'Customer name is required.'),
-  contactEmail: z.string().email('Invalid email address.').optional().or(z.literal('')),
+  customerName: z.string().min(1, 'Customer name is required.'),
+  customerEmail: z.string().email('Invalid email address.').optional().or(z.literal('')),
   defaultRevenueAccount: z.string().optional(),
 });
 
@@ -103,7 +103,7 @@ export default function CustomersPage() {
   const [sortConfig, setSortConfig] = useState<{
     key: string;
     direction: 'asc' | 'desc';
-  }>({ key: 'name', direction: 'asc' });
+  }>({ key: 'customerName', direction: 'asc' });
 
   // State for modals
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -113,8 +113,8 @@ export default function CustomersPage() {
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerSchema),
     defaultValues: {
-      name: '',
-      contactEmail: '',
+      customerName: '',
+      customerEmail: '',
       defaultRevenueAccount: '',
     },
   });
@@ -142,16 +142,13 @@ export default function CustomersPage() {
 
     try {
       const documentSnapshots = await getDocs(q);
-      const newCustomers = documentSnapshots.docs.map((doc: DocumentData) => ({
-        id: doc.id,
-        name: doc.data()['name'] || 'N/A',
-        contactEmail: doc.data()['contactEmail'],
-        defaultRevenueAccount: doc.data()['defaultRevenueAccount'],
-        companyId: doc.data()['companyId'],
-      }));
+      const newCustomers = documentSnapshots.docs.map((doc) => ({
+        customerId: doc.id,
+        ...doc.data(),
+      })) as Customer[];
 
       if (documentSnapshots.docs.length > 0) {
-        setCustomers(newCustomers as Customer[]);
+        setCustomers(newCustomers);
         setLastVisible(documentSnapshots.docs[documentSnapshots.docs.length - 1]);
         setFirstVisible(documentSnapshots.docs[0]);
         setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
@@ -178,7 +175,8 @@ export default function CustomersPage() {
     if (customersCollectionRef) {
       fetchCustomers('first');
     }
-  }, [customersCollectionRef, sortConfig, fetchCustomers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customersCollectionRef, sortConfig]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -204,15 +202,15 @@ export default function CustomersPage() {
   
   const openAddModal = () => {
     setSelectedCustomer(null);
-    form.reset({ name: '', contactEmail: '', defaultRevenueAccount: '' });
+    form.reset({ customerName: '', customerEmail: '', defaultRevenueAccount: '' });
     setIsFormOpen(true);
   };
 
   const openEditModal = (customer: Customer) => {
     setSelectedCustomer(customer);
     form.reset({
-      name: customer.name,
-      contactEmail: customer.contactEmail || '',
+      customerName: customer.customerName,
+      customerEmail: customer.customerEmail || '',
       defaultRevenueAccount: customer.defaultRevenueAccount || '',
     });
     setIsFormOpen(true);
@@ -233,19 +231,19 @@ export default function CustomersPage() {
 
     try {
       if (selectedCustomer) {
-        const docRef = doc(customersCollectionRef, selectedCustomer.id);
+        const docRef = doc(customersCollectionRef, selectedCustomer.customerId);
         await setDoc(docRef, dataToSave, { merge: true });
-        toast({ title: 'Customer updated', description: `"${values.name}" has been updated.` });
+        toast({ title: 'Customer updated', description: `"${values.customerName}" has been updated.` });
       } else {
         await addDoc(customersCollectionRef, dataToSave);
-        toast({ title: 'Customer created', description: `"${values.name}" has been added.` });
+        toast({ title: 'Customer created', description: `"${values.customerName}" has been added.` });
       }
       setIsFormOpen(false);
       fetchCustomers('first');
     } catch (error) {
         console.error('Error saving customer:', error);
         const permissionError = new FirestorePermissionError({
-            path: selectedCustomer ? doc(customersCollectionRef, selectedCustomer.id).path : customersCollectionRef.path,
+            path: selectedCustomer ? doc(customersCollectionRef, selectedCustomer.customerId).path : customersCollectionRef.path,
             operation: selectedCustomer ? 'update' : 'create',
             requestResourceData: dataToSave,
           });
@@ -257,16 +255,16 @@ export default function CustomersPage() {
   const handleDeleteCustomer = async () => {
     if (!selectedCustomer || !customersCollectionRef) return;
     try {
-      const docRef = doc(customersCollectionRef, selectedCustomer.id);
+      const docRef = doc(customersCollectionRef, selectedCustomer.customerId);
       await deleteDoc(docRef);
-      toast({ title: 'Customer deleted', description: `"${selectedCustomer.name}" has been deleted.` });
+      toast({ title: 'Customer deleted', description: `"${selectedCustomer.customerName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
       setSelectedCustomer(null);
       fetchCustomers('first');
     } catch (error) {
         console.error('Error deleting customer:', error);
         const permissionError = new FirestorePermissionError({
-            path: doc(customersCollectionRef, selectedCustomer.id).path,
+            path: doc(customersCollectionRef, selectedCustomer.customerId).path,
             operation: 'delete',
           });
         errorEmitter.emit('permission-error', permissionError);
@@ -299,8 +297,8 @@ export default function CustomersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('name')}><div className="flex items-center">Name {getSortIcon('name')}</div></TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('contactEmail')}><div className="flex items-center">Contact Email {getSortIcon('contactEmail')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('customerName')}><div className="flex items-center">Name {getSortIcon('customerName')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('customerEmail')}><div className="flex items-center">Contact Email {getSortIcon('customerEmail')}</div></TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('defaultRevenueAccount')}><div className="flex items-center">Default Revenue Account {getSortIcon('defaultRevenueAccount')}</div></TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -310,9 +308,9 @@ export default function CustomersPage() {
                   <TableRow><TableCell colSpan={4} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
                 ) : customers.length > 0 ? (
                   customers.map((customer) => (
-                    <TableRow key={customer.id}>
-                      <TableCell className="font-medium">{customer.name}</TableCell>
-                      <TableCell>{customer.contactEmail || 'N/A'}</TableCell>
+                    <TableRow key={customer.customerId}>
+                      <TableCell className="font-medium">{customer.customerName}</TableCell>
+                      <TableCell>{customer.customerEmail || 'N/A'}</TableCell>
                       <TableCell>{customer.defaultRevenueAccount || 'N/A'}</TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -349,7 +347,7 @@ export default function CustomersPage() {
             <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-4 py-4">
               <FormField
                 control={form.control}
-                name="name"
+                name="customerName"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Customer Name</FormLabel>
@@ -360,7 +358,7 @@ export default function CustomersPage() {
               />
               <FormField
                 control={form.control}
-                name="contactEmail"
+                name="customerEmail"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Contact Email (Optional)</FormLabel>
@@ -397,7 +395,7 @@ export default function CustomersPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone. This will permanently delete the customer "{selectedCustomer?.name}".</AlertDialogDescription>
+            <AlertDialogDescription>This action cannot be undone. This will permanently delete the customer "{selectedCustomer?.customerName}".</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

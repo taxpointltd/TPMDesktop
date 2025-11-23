@@ -80,9 +80,9 @@ import { Vendor } from '@/lib/types';
 
 
 const vendorSchema = z.object({
-  'Name': z.string().min(1, 'Vendor name is required.'),
-  'Contact Email': z.string().email('Invalid email address.').optional().or(z.literal('')),
-  'Default Expense Account': z.string().optional(),
+  vendorName: z.string().min(1, 'Vendor name is required.'),
+  vendorEmail: z.string().email('Invalid email address.').optional().or(z.literal('')),
+  defaultExpenseAccount: z.string().optional(),
 });
 
 type VendorFormValues = z.infer<typeof vendorSchema>;
@@ -104,7 +104,7 @@ export default function VendorsPage() {
   const [sortConfig, setSortConfig] = useState<{
     key: string;
     direction: 'asc' | 'desc';
-  }>({ key: 'Name', direction: 'asc' });
+  }>({ key: 'vendorName', direction: 'asc' });
 
   // State for modals
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -114,9 +114,9 @@ export default function VendorsPage() {
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(vendorSchema),
     defaultValues: {
-      'Name': '',
-      'Contact Email': '',
-      'Default Expense Account': '',
+      vendorName: '',
+      vendorEmail: '',
+      defaultExpenseAccount: '',
     },
   });
 
@@ -143,16 +143,13 @@ export default function VendorsPage() {
 
     try {
       const documentSnapshots = await getDocs(q);
-      const newVendors = documentSnapshots.docs.map((doc: DocumentData) => ({
-        id: doc.id,
-        'Name': doc.data()['Name'] || 'N/A',
-        'Contact Email': doc.data()['Contact Email'],
-        'Default Expense Account': doc.data()['Default Expense Account'],
-        companyId: doc.data()['companyId'],
-      }));
-
+      const newVendors = documentSnapshots.docs.map((doc) => ({
+        vendorId: doc.id,
+        ...doc.data(),
+      })) as Vendor[];
+      
       if (documentSnapshots.docs.length > 0) {
-        setVendors(newVendors as Vendor[]);
+        setVendors(newVendors);
         setLastVisible(documentSnapshots.docs[documentSnapshots.docs.length - 1]);
         setFirstVisible(documentSnapshots.docs[0]);
         setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
@@ -179,7 +176,8 @@ export default function VendorsPage() {
     if (vendorsCollectionRef) {
       fetchVendors('first');
     }
-  }, [vendorsCollectionRef, sortConfig, fetchVendors]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorsCollectionRef, sortConfig]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -205,16 +203,16 @@ export default function VendorsPage() {
 
   const openAddModal = () => {
     setSelectedVendor(null);
-    form.reset({ 'Name': '', 'Contact Email': '', 'Default Expense Account': '' });
+    form.reset({ vendorName: '', vendorEmail: '', defaultExpenseAccount: '' });
     setIsFormOpen(true);
   };
 
   const openEditModal = (vendor: Vendor) => {
     setSelectedVendor(vendor);
     form.reset({
-      'Name': vendor['Name'],
-      'Contact Email': vendor['Contact Email'] || '',
-      'Default Expense Account': vendor['Default Expense Account'] || '',
+      vendorName: vendor.vendorName,
+      vendorEmail: vendor.vendorEmail || '',
+      defaultExpenseAccount: vendor.defaultExpenseAccount || '',
     });
     setIsFormOpen(true);
   };
@@ -234,19 +232,19 @@ export default function VendorsPage() {
 
     try {
       if (selectedVendor) {
-        const docRef = doc(vendorsCollectionRef, selectedVendor.id);
+        const docRef = doc(vendorsCollectionRef, selectedVendor.vendorId);
         await setDoc(docRef, dataToSave, { merge: true });
-        toast({ title: 'Vendor updated', description: `"${values['Name']}" has been updated.` });
+        toast({ title: 'Vendor updated', description: `"${values.vendorName}" has been updated.` });
       } else {
         await addDoc(vendorsCollectionRef, dataToSave);
-        toast({ title: 'Vendor created', description: `"${values['Name']}" has been added.` });
+        toast({ title: 'Vendor created', description: `"${values.vendorName}" has been added.` });
       }
       setIsFormOpen(false);
       fetchVendors('first'); 
     } catch (error) {
         console.error('Error saving vendor:', error);
         const permissionError = new FirestorePermissionError({
-            path: selectedVendor ? doc(vendorsCollectionRef, selectedVendor.id).path : vendorsCollectionRef.path,
+            path: selectedVendor ? doc(vendorsCollectionRef, selectedVendor.vendorId).path : vendorsCollectionRef.path,
             operation: selectedVendor ? 'update' : 'create',
             requestResourceData: dataToSave,
           });
@@ -258,16 +256,16 @@ export default function VendorsPage() {
   const handleDeleteVendor = async () => {
     if (!selectedVendor || !vendorsCollectionRef) return;
     try {
-      const docRef = doc(vendorsCollectionRef, selectedVendor.id);
+      const docRef = doc(vendorsCollectionRef, selectedVendor.vendorId);
       await deleteDoc(docRef);
-      toast({ title: 'Vendor deleted', description: `"${selectedVendor['Name']}" has been deleted.` });
+      toast({ title: 'Vendor deleted', description: `"${selectedVendor.vendorName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
       setSelectedVendor(null);
       fetchVendors('first'); 
     } catch (error) {
         console.error('Error deleting vendor:', error);
         const permissionError = new FirestorePermissionError({
-            path: doc(vendorsCollectionRef, selectedVendor.id).path,
+            path: doc(vendorsCollectionRef, selectedVendor.vendorId).path,
             operation: 'delete',
           });
         errorEmitter.emit('permission-error', permissionError);
@@ -300,9 +298,9 @@ export default function VendorsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('Name')}><div className="flex items-center">Name {getSortIcon('Name')}</div></TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('Contact Email')}><div className="flex items-center">Contact Email {getSortIcon('Contact Email')}</div></TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('Default Expense Account')}><div className="flex items-center">Default Expense Account {getSortIcon('Default Expense Account')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('vendorName')}><div className="flex items-center">Name {getSortIcon('vendorName')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('vendorEmail')}><div className="flex items-center">Contact Email {getSortIcon('vendorEmail')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('defaultExpenseAccount')}><div className="flex items-center">Default Expense Account {getSortIcon('defaultExpenseAccount')}</div></TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -311,10 +309,10 @@ export default function VendorsPage() {
                   <TableRow><TableCell colSpan={4} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
                 ) : vendors.length > 0 ? (
                   vendors.map((vendor) => (
-                    <TableRow key={vendor.id}>
-                      <TableCell className="font-medium">{vendor['Name']}</TableCell>
-                      <TableCell>{vendor['Contact Email'] || 'N/A'}</TableCell>
-                      <TableCell>{vendor['Default Expense Account'] || 'N/A'}</TableCell>
+                    <TableRow key={vendor.vendorId}>
+                      <TableCell className="font-medium">{vendor.vendorName}</TableCell>
+                      <TableCell>{vendor.vendorEmail || 'N/A'}</TableCell>
+                      <TableCell>{vendor.defaultExpenseAccount || 'N/A'}</TableCell>
                       <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Open menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
@@ -350,7 +348,7 @@ export default function VendorsPage() {
             <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-4 py-4">
               <FormField
                 control={form.control}
-                name="Name"
+                name="vendorName"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Vendor Name</FormLabel>
@@ -361,7 +359,7 @@ export default function VendorsPage() {
               />
               <FormField
                 control={form.control}
-                name="Contact Email"
+                name="vendorEmail"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Contact Email (Optional)</FormLabel>
@@ -372,7 +370,7 @@ export default function VendorsPage() {
               />
               <FormField
                 control={form.control}
-                name="Default Expense Account"
+                name="defaultExpenseAccount"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Default Expense Account (Optional)</FormLabel>
@@ -398,7 +396,7 @@ export default function VendorsPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone. This will permanently delete the vendor "{selectedVendor?.['Name']}".</AlertDialogDescription>
+            <AlertDialogDescription>This action cannot be undone. This will permanently delete the vendor "{selectedVendor?.vendorName}".</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

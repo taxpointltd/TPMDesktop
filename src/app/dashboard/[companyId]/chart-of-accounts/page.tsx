@@ -194,8 +194,8 @@ export default function ChartOfAccountsPage() {
 
     try {
       const result = await interlinkAccounts({
-        vendors: JSON.stringify(vendors.map(({ id, defaultExpenseAccount }) => ({ id, defaultExpenseAccount }))),
-        customers: JSON.stringify(customers.map(({ id, defaultRevenueAccount }) => ({ id, defaultRevenueAccount }))),
+        vendors: JSON.stringify(vendors.map(({ id, vendorName, defaultExpenseAccount }) => ({ id, vendorName, defaultExpenseAccount }))),
+        customers: JSON.stringify(customers.map(({ id, customerName, defaultRevenueAccount }) => ({ id, customerName, defaultRevenueAccount }))),
         chartOfAccounts: JSON.stringify(chartOfAccounts.map(({ id, accountName, accountNumber, subAccountName, subAccountNumber }) => ({ id, accountName, accountNumber, subAccountName, subAccountNumber }))),
       });
 

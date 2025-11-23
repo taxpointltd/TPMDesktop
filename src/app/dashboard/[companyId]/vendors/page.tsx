@@ -70,7 +70,6 @@ export default function VendorsPage() {
   const vendorsCollectionRef = useMemoFirebase(() => {
     if (!user || !firestore) return null;
     const path = `/users/${user.uid}/companies/${params.companyId}/vendors`;
-    console.log('[Vendors Debug] Collection Path:', path);
     return collection(
       firestore,
       path
@@ -80,11 +79,9 @@ export default function VendorsPage() {
   const fetchVendors = useCallback(
     async (direction: 'next' | 'prev' | 'first' = 'first') => {
       if (!vendorsCollectionRef) {
-        console.log('[Vendors Debug] fetchVendors aborted: collection ref not ready.');
         return;
       }
       setIsLoading(true);
-      console.log(`[Vendors Debug] Fetching vendors, direction: ${direction}, page: ${page}`);
 
       let q;
       const { key, direction: sortDirection } = sortConfig;
@@ -111,17 +108,14 @@ export default function VendorsPage() {
         );
         setPage(1);
       }
-      console.log('[Vendors Debug] Query created:', q);
 
       try {
         const documentSnapshots = await getDocs(q);
-        console.log(`[Vendors Debug] Firestore returned ${documentSnapshots.docs.length} documents.`);
         
         const newVendors = documentSnapshots.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         })) as Vendor[];
-        console.log('[Vendors Debug] Mapped data:', newVendors);
 
         if (!documentSnapshots.empty) {
           setLastVisible(
@@ -131,7 +125,6 @@ export default function VendorsPage() {
           setVendors(newVendors);
           setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
         } else if (direction === 'first') {
-          console.log('[Vendors Debug] No documents found on first fetch.');
           setVendors([]);
           setLastVisible(null);
           setFirstVisible(null);
@@ -142,23 +135,20 @@ export default function VendorsPage() {
           }
         }
       } catch (error) {
-        console.error('[Vendors Debug] Error fetching vendors:', error);
+        console.error('Error fetching vendors:', error);
         setVendors([]);
       } finally {
-        console.log('[Vendors Debug] Fetch finished.');
         setIsLoading(false);
       }
     },
-    [vendorsCollectionRef, lastVisible, firstVisible, sortConfig, page]
+    [vendorsCollectionRef, lastVisible, firstVisible, sortConfig]
   );
 
   useEffect(() => {
-    console.log('[Vendors Debug] useEffect triggered. Ref available:', !!vendorsCollectionRef);
     if (vendorsCollectionRef) {
       fetchVendors('first');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortConfig, vendorsCollectionRef]);
+  }, [sortConfig, vendorsCollectionRef, fetchVendors]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -175,13 +165,11 @@ export default function VendorsPage() {
   };
 
   const handleSort = (key: keyof Vendor) => {
-    console.log(`[Vendors Debug] Sorting by ${key}`);
     setSortConfig((prev) => {
       const newDirection =
         prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc';
       return { key, direction: newDirection };
     });
-    // Reset pagination state when sorting changes
     setLastVisible(null);
     setFirstVisible(null);
     setPage(1);
@@ -199,8 +187,6 @@ export default function VendorsPage() {
     );
   };
   
-  console.log('[Vendors Debug] Rendering component. Current vendors state:', vendors);
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">

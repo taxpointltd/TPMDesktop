@@ -71,7 +71,6 @@ export default function ChartOfAccountsPage() {
   const coaCollectionRef = useMemoFirebase(() => {
     if (!user || !firestore) return null;
     const path = `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`;
-    console.log('[COA Debug] Collection Path:', path);
     return collection(
       firestore,
       path
@@ -81,11 +80,9 @@ export default function ChartOfAccountsPage() {
   const fetchAccounts = useCallback(
     async (direction: 'next' | 'prev' | 'first' = 'first') => {
       if (!coaCollectionRef) {
-        console.log('[COA Debug] fetchAccounts aborted: collection ref not ready.');
         return;
       }
       setIsLoading(true);
-      console.log(`[COA Debug] Fetching accounts, direction: ${direction}, page: ${page}`);
 
       let q;
       const { key, direction: sortDirection } = sortConfig;
@@ -112,17 +109,14 @@ export default function ChartOfAccountsPage() {
         );
         setPage(1);
       }
-      console.log('[COA Debug] Query created:', q);
 
       try {
         const documentSnapshots = await getDocs(q);
-        console.log(`[COA Debug] Firestore returned ${documentSnapshots.docs.length} documents.`);
 
         const newAccounts = documentSnapshots.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         })) as ChartOfAccount[];
-        console.log('[COA Debug] Mapped data:', newAccounts);
 
         if (!documentSnapshots.empty) {
           setLastVisible(
@@ -132,7 +126,6 @@ export default function ChartOfAccountsPage() {
           setAccounts(newAccounts);
           setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
         } else if (direction === 'first') {
-          console.log('[COA Debug] No documents found on first fetch.');
           setAccounts([]);
           setLastVisible(null);
           setFirstVisible(null);
@@ -146,20 +139,17 @@ export default function ChartOfAccountsPage() {
         console.error('Error fetching accounts:', error);
         setAccounts([]);
       } finally {
-        console.log('[COA Debug] Fetch finished.');
         setIsLoading(false);
       }
     },
-    [coaCollectionRef, lastVisible, firstVisible, sortConfig, page]
+    [coaCollectionRef, lastVisible, firstVisible, sortConfig]
   );
 
   useEffect(() => {
-    console.log('[COA Debug] useEffect triggered. Ref available:', !!coaCollectionRef);
     if (coaCollectionRef) {
         fetchAccounts('first');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortConfig, coaCollectionRef]);
+  }, [sortConfig, coaCollectionRef, fetchAccounts]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -176,13 +166,11 @@ export default function ChartOfAccountsPage() {
   };
 
   const handleSort = (key: keyof ChartOfAccount) => {
-    console.log(`[COA Debug] Sorting by ${key}`);
     setSortConfig((prev) => {
       const newDirection =
         prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc';
       return { key, direction: newDirection };
     });
-    // Reset pagination state when sorting changes
     setLastVisible(null);
     setFirstVisible(null);
     setPage(1);
@@ -194,14 +182,12 @@ export default function ChartOfAccountsPage() {
       return <ArrowUpDown className="ml-2 h-4 w-4" />;
     }
     return sortConfig.direction === 'asc' ? (
-      <ArrowUpDown className="ml-2 h-4 w-4" /> // Replace with ArrowUp icon if you want specific direction
+      <ArrowUpDown className="ml-2 h-4 w-4" />
     ) : (
-      <ArrowUpDown className="ml-2 h-4 w-4" /> // Replace with ArrowDown icon
+      <ArrowUpDown className="ml-2 h-4 w-4" />
     );
   };
   
-  console.log('[COA Debug] Rendering component. Current accounts state:', accounts);
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">

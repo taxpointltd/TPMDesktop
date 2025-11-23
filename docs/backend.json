@@ -1,0 +1,328 @@
+{
+  "entities": {
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user within the TransactWise application.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the user."
+        },
+        "email": {
+          "type": "string",
+          "description": "User's email address.",
+          "format": "email"
+        },
+        "firstName": {
+          "type": "string",
+          "description": "User's first name."
+        },
+        "lastName": {
+          "type": "string",
+          "description": "User's last name."
+        }
+      },
+      "required": [
+        "id",
+        "email"
+      ]
+    },
+    "Company": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Company",
+      "type": "object",
+      "description": "Represents a company profile within the TransactWise application.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the company."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the company."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Reference to User. (Relationship: User 1:N Company)"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "userId"
+      ]
+    },
+    "Vendor": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Vendor",
+      "type": "object",
+      "description": "Represents a vendor associated with a company.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the vendor."
+        },
+        "companyId": {
+          "type": "string",
+          "description": "Reference to Company. (Relationship: Company 1:N Vendor)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the vendor."
+        }
+      },
+      "required": [
+        "id",
+        "companyId",
+        "name"
+      ]
+    },
+    "Customer": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Customer",
+      "type": "object",
+      "description": "Represents a customer associated with a company.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the customer."
+        },
+        "companyId": {
+          "type": "string",
+          "description": "Reference to Company. (Relationship: Company 1:N Customer)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the customer."
+        }
+      },
+      "required": [
+        "id",
+        "companyId",
+        "name"
+      ]
+    },
+    "ChartOfAccount": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "ChartOfAccount",
+      "type": "object",
+      "description": "Represents a chart of accounts entry for a company.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the chart of account."
+        },
+        "companyId": {
+          "type": "string",
+          "description": "Reference to Company. (Relationship: Company 1:N ChartOfAccount)"
+        },
+        "accountName": {
+          "type": "string",
+          "description": "Name of the account."
+        },
+        "accountNumber": {
+          "type": "string",
+          "description": "Account number."
+        }
+      },
+      "required": [
+        "id",
+        "companyId",
+        "accountName",
+        "accountNumber"
+      ]
+    },
+    "Transaction": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Transaction",
+      "type": "object",
+      "description": "Represents a financial transaction.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the transaction."
+        },
+        "companyId": {
+          "type": "string",
+          "description": "Reference to Company. (Relationship: Company 1:N Transaction)"
+        },
+        "vendorId": {
+          "type": "string",
+          "description": "Reference to Vendor. (Relationship: Vendor 1:N Transaction)"
+        },
+        "customerId": {
+          "type": "string",
+          "description": "Reference to Customer. (Relationship: Customer 1:N Transaction)"
+        },
+        "chartOfAccountId": {
+          "type": "string",
+          "description": "Reference to ChartOfAccount. (Relationship: ChartOfAccount 1:N Transaction)"
+        },
+        "date": {
+          "type": "string",
+          "description": "Date of the transaction.",
+          "format": "date-time"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Amount of the transaction."
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the transaction."
+        }
+      },
+      "required": [
+        "id",
+        "companyId",
+        "date",
+        "amount"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores user profiles. Path-based ownership ensures only the user can access their profile.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier for the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/companies/{companyId}",
+        "definition": {
+          "entityName": "Company",
+          "schema": {
+            "$ref": "#/backend/entities/Company"
+          },
+          "description": "Stores company profiles owned by a user. Path-based ownership.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier for the user."
+            },
+            {
+              "name": "companyId",
+              "description": "The unique identifier for the company."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/companies/{companyId}/vendors/{vendorId}",
+        "definition": {
+          "entityName": "Vendor",
+          "schema": {
+            "$ref": "#/backend/entities/Vendor"
+          },
+          "description": "Stores vendor information for a specific company. Ownership is inherited from the company path.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier for the user."
+            },
+            {
+              "name": "companyId",
+              "description": "The unique identifier for the company."
+            },
+            {
+              "name": "vendorId",
+              "description": "The unique identifier for the vendor."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/companies/{companyId}/customers/{customerId}",
+        "definition": {
+          "entityName": "Customer",
+          "schema": {
+            "$ref": "#/backend/entities/Customer"
+          },
+          "description": "Stores customer information for a specific company. Ownership is inherited from the company path.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier for the user."
+            },
+            {
+              "name": "companyId",
+              "description": "The unique identifier for the company."
+            },
+            {
+              "name": "customerId",
+              "description": "The unique identifier for the customer."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/companies/{companyId}/chartOfAccounts/{chartOfAccountId}",
+        "definition": {
+          "entityName": "ChartOfAccount",
+          "schema": {
+            "$ref": "#/backend/entities/ChartOfAccount"
+          },
+          "description": "Stores chart of accounts information for a specific company. Ownership is inherited from the company path.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier for the user."
+            },
+            {
+              "name": "companyId",
+              "description": "The unique identifier for the company."
+            },
+            {
+              "name": "chartOfAccountId",
+              "description": "The unique identifier for the chart of account."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/companies/{companyId}/transactions/{transactionId}",
+        "definition": {
+          "entityName": "Transaction",
+          "schema": {
+            "$ref": "#/backend/entities/Transaction"
+          },
+          "description": "Stores transaction information for a specific company. Ownership is inherited from the company path.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier for the user."
+            },
+            {
+              "name": "companyId",
+              "description": "The unique identifier for the company."
+            },
+            {
+              "name": "transactionId",
+              "description": "The unique identifier for the transaction."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to support the TransactWise application, focusing on secure and efficient data management for users, companies, vendors, customers, chart of accounts, and transactions. It leverages path-based ownership for user-specific data and denormalization to achieve authorization independence, which simplifies security rules and enhances data integrity.\n\n**Authorization Independence and Security:**\n\n*   **Users Collection:** User profiles are stored in `/users/{userId}`, providing a straightforward path-based ownership model. Security rules can easily enforce that only the user can access their profile.\n*   **Companies Collection:** Companies are stored under `/users/{userId}/companies/{companyId}`, establishing a clear ownership hierarchy.  No denormalization is required at this level as authorization depends on the `userId` in the path.\n*   **Subcollections (Vendors, Customers, ChartOfAccounts, Transactions):**  Subcollections under `/users/{userId}/companies/{companyId}` (e.g., `/users/{userId}/companies/{companyId}/vendors/{vendorId}`) maintain the ownership context. Because these are owned by the company, no denormalization of ownership is needed. Authorization is implicit based on the `userId` and `companyId` in the path.\n\n**QAPs (Rules are not Filters):**\n\nThe structure enables secure `list` operations because all documents within a collection share the same security requirements. For example, listing vendors under a specific company only requires checking if the user has access to that company, rather than filtering vendors based on individual access rights. This is achieved due to structural segregation (homogeneous security posture).\n\n**Data Integrity and Scalability:**\n\n*   The hierarchical structure allows for efficient querying of related data. For instance, fetching all transactions for a specific company is straightforward.\n*   Batch operations are facilitated by the structure, enabling efficient data import and updates across related collections.\n\nThis structure balances security, scalability, and ease of maintenance, aligning with the application's requirements and the core design principles."
+  }
+}

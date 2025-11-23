@@ -179,7 +179,7 @@ export default function VendorsPage() {
     if (vendorsCollectionRef) {
       fetchVendors('first');
     }
-  }, [vendorsCollectionRef, sortConfig]);
+  }, [vendorsCollectionRef, sortConfig, fetchVendors]);
 
   const handleNextPage = () => {
     if (!isLastPage) {

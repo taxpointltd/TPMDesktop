@@ -1,4 +1,4 @@
-Name,Contact Email,Default Revenue Account
-"Client A","clienta@example.com","Sales Revenue"
-"Client B","clientb@example.com","Service Revenue"
-"Client C","clientc@example.com","Sales Revenue"
+name,contactEmail,defaultRevenueAccount
+"Creative Solutions Inc.","contact@creativesolutions.com","Sales Revenue"
+"Global Tech Corp","sales@globaltech.com","Service Revenue"
+"Innovate LLC","accounts@innovatellc.com","Consulting Revenue"

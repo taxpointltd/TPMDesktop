@@ -1,5 +1,12 @@
-Account Name,Account Number,Account Type,Description
-"Cash","10100","Asset","Cash in bank accounts."
-"Accounts Receivable","12000","Asset","Money owed by customers."
-"Office Supplies","65600","Expense","Cost of office supplies."
-"Sales Revenue","40000","Revenue","Income from sales of goods."
+accountName,accountNumber,accountType,accountDescription
+"Sales Revenue","40000","Revenue","Income from sales of goods or services"
+"Cost of Goods Sold","50000","Expense","Direct costs attributable to the production of the goods sold"
+"Advertising Expense","60100","Expense","Costs associated with promoting the business"
+"Office Supplies","60210","Expense","Expenses for office supplies"
+"Bank Service Charges","60500","Expense","Fees charged by the bank for services"
+"Checking Account","10100","Asset","Funds held in the company's primary bank account"
+"Accounts Receivable","12000","Asset","Money owed to the company by its customers"
+"Computer Equipment","15000","Asset","Cost of computer hardware"
+"Accounts Payable","20100","Liability","Money owed by the company to its suppliers"
+"Shareholder Loan","27000","Liability","Money loaned to the company by a shareholder"
+"Common Stock","32000","Equity","Investment by owners into the company"

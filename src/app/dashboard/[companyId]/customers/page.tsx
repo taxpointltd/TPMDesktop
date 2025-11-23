@@ -178,7 +178,7 @@ export default function CustomersPage() {
     if (customersCollectionRef) {
       fetchCustomers('first');
     }
-  }, [customersCollectionRef, sortConfig]);
+  }, [customersCollectionRef, sortConfig, fetchCustomers]);
 
   const handleNextPage = () => {
     if (!isLastPage) {

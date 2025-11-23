@@ -203,9 +203,10 @@ export default function ChartOfAccountsPage() {
 
   useEffect(() => {
     if (coaCollectionRef) {
-        fetchAccounts('first');
+      fetchAccounts('first');
     }
-  }, [coaCollectionRef, sortConfig]);
+  }, [coaCollectionRef, sortConfig, fetchAccounts]);
+
 
   const handleNextPage = () => {
     if (!isLastPage) {

@@ -114,14 +114,19 @@ export default function VendorsPage() {
           setFirstVisible(documentSnapshots.docs[0]);
           setVendors(newVendors);
           setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
-        } else if (direction !== 'first') {
+        } else if (direction === 'first') {
+          setVendors([]);
+          setLastVisible(null);
+          setFirstVisible(null);
           setIsLastPage(true);
         } else {
-          setVendors([]);
-          setIsLastPage(true);
+          if (direction === 'next') {
+            setIsLastPage(true);
+          }
         }
       } catch (error) {
         console.error('Error fetching vendors:', error);
+        setVendors([]);
       } finally {
         setIsLoading(false);
       }
@@ -130,7 +135,9 @@ export default function VendorsPage() {
   );
 
   useEffect(() => {
-    fetchVendors();
+    if (vendorsCollectionRef) {
+      fetchVendors('first');
+    }
   }, [sortConfig, vendorsCollectionRef]);
 
   const handleNextPage = () => {
@@ -149,14 +156,14 @@ export default function VendorsPage() {
 
   const handleSort = (key: keyof Vendor) => {
     setSortConfig((prev) => {
-      if (prev.key === key) {
-        return {
-          key,
-          direction: prev.direction === 'asc' ? 'desc' : 'asc',
-        };
-      }
-      return { key, direction: 'asc' };
+      const newDirection =
+        prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc';
+      return { key, direction: newDirection };
     });
+    setLastVisible(null);
+    setFirstVisible(null);
+    setPage(1);
+    setIsLastPage(false);
   };
 
   const getSortIcon = (key: keyof Vendor) => {
@@ -265,7 +272,7 @@ export default function VendorsPage() {
               variant="outline"
               size="sm"
               onClick={handlePrevPage}
-              disabled={page <= 1}
+              disabled={page <= 1 || isLoading}
             >
               Previous
             </Button>
@@ -273,7 +280,7 @@ export default function VendorsPage() {
               variant="outline"
               size="sm"
               onClick={handleNextPage}
-              disabled={isLastPage}
+              disabled={isLastPage || isLoading}
             >
               Next
             </Button>

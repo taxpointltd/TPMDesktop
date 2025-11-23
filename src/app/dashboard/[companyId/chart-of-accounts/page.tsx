@@ -34,21 +34,22 @@ import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
 import React, { useState, useEffect, useCallback } from 'react';
 
-interface Customer {
+interface ChartOfAccount {
   id: string;
-  name: string;
-  contactEmail?: string;
-  defaultRevenueAccount?: string;
+  accountName: string;
+  accountNumber?: string;
+  accountType?: string;
+  accountDescription?: string;
 }
 
 const PAGE_SIZE = 10;
 
-export default function CustomersPage() {
+export default function ChartOfAccountsPage() {
   const params = useParams() as { companyId: string };
   const { user } = useUser();
   const firestore = useFirestore();
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [accounts, setAccounts] = useState<ChartOfAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastVisible, setLastVisible] =
     useState<QueryDocumentSnapshot<DocumentData> | null>(null);
@@ -57,21 +58,21 @@ export default function CustomersPage() {
   const [isLastPage, setIsLastPage] = useState(false);
   const [page, setPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{
-    key: keyof Customer;
+    key: keyof ChartOfAccount;
     direction: 'asc' | 'desc';
-  }>({ key: 'name', direction: 'asc' });
+  }>({ key: 'accountName', direction: 'asc' });
 
-  const customersCollectionRef = useMemoFirebase(() => {
+  const coaCollectionRef = useMemoFirebase(() => {
     if (!user || !firestore) return null;
     return collection(
       firestore,
-      `/users/${user.uid}/companies/${params.companyId}/customers`
+      `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`
     );
   }, [firestore, user, params.companyId]);
 
-  const fetchCustomers = useCallback(
+  const fetchAccounts = useCallback(
     async (direction: 'next' | 'prev' | 'first' = 'first') => {
-      if (!customersCollectionRef) return;
+      if (!coaCollectionRef) return;
       setIsLoading(true);
 
       let q;
@@ -79,21 +80,21 @@ export default function CustomersPage() {
 
       if (direction === 'next' && lastVisible) {
         q = query(
-          customersCollectionRef,
+          coaCollectionRef,
           orderBy(key, sortDirection),
           startAfter(lastVisible),
           limit(PAGE_SIZE)
         );
       } else if (direction === 'prev' && firstVisible) {
         q = query(
-          customersCollectionRef,
+          coaCollectionRef,
           orderBy(key, sortDirection),
           endBefore(firstVisible),
           limitToLast(PAGE_SIZE)
         );
       } else {
         q = query(
-          customersCollectionRef,
+          coaCollectionRef,
           orderBy(key, sortDirection),
           limit(PAGE_SIZE)
         );
@@ -102,78 +103,82 @@ export default function CustomersPage() {
 
       try {
         const documentSnapshots = await getDocs(q);
-        const newCustomers = documentSnapshots.docs.map((doc) => ({
+        const newAccounts = documentSnapshots.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
-        })) as Customer[];
+        })) as ChartOfAccount[];
 
         if (!documentSnapshots.empty) {
           setLastVisible(
             documentSnapshots.docs[documentSnapshots.docs.length - 1]
           );
           setFirstVisible(documentSnapshots.docs[0]);
-          setCustomers(newCustomers);
+          setAccounts(newAccounts);
           setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
         } else if (direction === 'first') {
-          setCustomers([]);
+          setAccounts([]);
           setLastVisible(null);
           setFirstVisible(null);
           setIsLastPage(true);
         } else {
+          // This case handles when you paginate past the last page.
+          // For 'prev' it's unlikely to have an empty snapshot if there's data,
+          // but for 'next' it means you've reached the end.
           if (direction === 'next') {
             setIsLastPage(true);
           }
         }
       } catch (error) {
-        console.error('Error fetching customers:', error);
-        setCustomers([]);
+        console.error('Error fetching accounts:', error);
+        setAccounts([]);
       } finally {
         setIsLoading(false);
       }
     },
-    [customersCollectionRef, lastVisible, firstVisible, sortConfig]
+    [coaCollectionRef, lastVisible, firstVisible, sortConfig]
   );
 
   useEffect(() => {
-    if (customersCollectionRef) {
-      fetchCustomers('first');
+    if (coaCollectionRef) {
+        fetchAccounts('first');
     }
-  }, [sortConfig, customersCollectionRef]);
+  }, [sortConfig, coaCollectionRef]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
       setPage(page + 1);
-      fetchCustomers('next');
+      fetchAccounts('next');
     }
   };
 
   const handlePrevPage = () => {
     if (page > 1) {
       setPage(page - 1);
-      fetchCustomers('prev');
+      fetchAccounts('prev');
     }
   };
 
-  const handleSort = (key: keyof Customer) => {
+  const handleSort = (key: keyof ChartOfAccount) => {
     setSortConfig((prev) => {
       const newDirection =
         prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc';
       return { key, direction: newDirection };
     });
+    // Reset pagination state when sorting changes
     setLastVisible(null);
     setFirstVisible(null);
     setPage(1);
     setIsLastPage(false);
   };
 
-  const getSortIcon = (key: keyof Customer) => {
+  const getSortIcon = (key: keyof ChartOfAccount) => {
     if (sortConfig.key !== key) {
       return <ArrowUpDown className="ml-2 h-4 w-4" />;
     }
     return sortConfig.direction === 'asc' ? (
-      <ArrowUpDown className="ml-2 h-4 w-4" />
+      <ArrowUpDown className="ml-2 h-4 w-4" /> // Replace with ArrowUp icon if you want specific direction
     ) : (
-      <ArrowUpDown className="ml-2 h-4 w-4" />
+      <ArrowUpDown className="ml-2 h-4 w-4" /> // Replace with ArrowDown icon
     );
   };
 
@@ -181,9 +186,11 @@ export default function CustomersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Customers</h1>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Chart of Accounts
+          </h1>
           <p className="text-muted-foreground">
-            Manage customers for company{' '}
+            Manage your chart of accounts for company{' '}
             <span className="font-mono bg-muted px-2 py-1 rounded">
               {params.companyId}
             </span>
@@ -192,15 +199,15 @@ export default function CustomersPage() {
         </div>
         <Button>
           <PlusCircle className="mr-2 h-4 w-4" />
-          Add Customer
+          Add Account
         </Button>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Customer List</CardTitle>
+          <CardTitle>Accounts List</CardTitle>
           <CardDescription>
-            A list of all customers associated with your company.
+            A list of all accounts associated with your company.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -210,58 +217,58 @@ export default function CustomersPage() {
                 <TableRow>
                   <TableHead
                     className="cursor-pointer"
-                    onClick={() => handleSort('name')}
+                    onClick={() => handleSort('accountName')}
                   >
                     <div className="flex items-center">
-                      Name {getSortIcon('name')}
+                      Account Name {getSortIcon('accountName')}
                     </div>
                   </TableHead>
                   <TableHead
                     className="cursor-pointer"
-                    onClick={() => handleSort('contactEmail')}
+                    onClick={() => handleSort('accountNumber')}
                   >
                     <div className="flex items-center">
-                      Contact Email {getSortIcon('contactEmail')}
+                      Account Number {getSortIcon('accountNumber')}
                     </div>
                   </TableHead>
                   <TableHead
                     className="cursor-pointer"
-                    onClick={() => handleSort('defaultRevenueAccount')}
+                    onClick={() => handleSort('accountType')}
                   >
                     <div className="flex items-center">
-                      Default Revenue Account{' '}
-                      {getSortIcon('defaultRevenueAccount')}
+                      Account Type {getSortIcon('accountType')}
                     </div>
                   </TableHead>
+                  <TableHead>Description</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={3} className="text-center">
+                    <TableCell colSpan={4} className="text-center">
                       <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                     </TableCell>
                   </TableRow>
-                ) : customers && customers.length > 0 ? (
-                  customers.map((customer) => (
-                    <TableRow key={customer.id}>
+                ) : accounts && accounts.length > 0 ? (
+                  accounts.map((account) => (
+                    <TableRow key={account.id}>
                       <TableCell className="font-medium">
-                        {customer.name}
+                        {account.accountName}
                       </TableCell>
-                      <TableCell>{customer.contactEmail || 'N/A'}</TableCell>
+                      <TableCell>{account.accountNumber || 'N/A'}</TableCell>
+                      <TableCell>{account.accountType || 'N/A'}</TableCell>
                       <TableCell>
-                        {customer.defaultRevenueAccount || 'N/A'}
+                        {account.accountDescription || 'N/A'}
                       </TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
                     <TableCell
-                      colSpan={3}
+                      colSpan={4}
                       className="text-center text-muted-foreground"
                     >
-                      No customers found. Import them from the Data Import
-                      page.
+                      No accounts found. Import them from the Data Import page.
                     </TableCell>
                   </TableRow>
                 )}

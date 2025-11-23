@@ -4,14 +4,8 @@ import { useFirestore, useUser } from '@/firebase';
 import {
   collection,
   query,
-  orderBy,
-  limit,
-  startAfter,
   getDocs,
-  QueryDocumentSnapshot,
   DocumentData,
-  endBefore,
-  limitToLast,
 } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import {
@@ -35,7 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { PlusCircle, Loader2, ArrowUpDown, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
+import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
 import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
 import React, { useState, useEffect, useCallback } from 'react';
@@ -47,8 +41,6 @@ interface Vendor {
   defaultExpenseAccount?: string;
 }
 
-const PAGE_SIZE = 10;
-
 export default function VendorsPage() {
   const params = useParams() as { companyId: string };
   const { user } = useUser();
@@ -56,136 +48,66 @@ export default function VendorsPage() {
 
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [lastVisible, setLastVisible] =
-    useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [firstVisible, setFirstVisible] =
-    useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [isLastPage, setIsLastPage] = useState(false);
-  const [page, setPage] = useState(1);
-  const [sortConfig, setSortConfig] = useState<{
-    key: keyof Vendor;
-    direction: 'asc' | 'desc';
-  }>({ key: 'name', direction: 'asc' });
 
   const vendorsCollectionRef = useMemoFirebase(() => {
-    if (!user || !firestore) {
+    if (!user || !firestore || !params.companyId) {
+      console.log('VendorsPage: Skipping collection ref creation, missing user, firestore or companyId');
       return null;
     }
     const path = `/users/${user.uid}/companies/${params.companyId}/vendors`;
+    console.log('VendorsPage: Creating collection reference for path:', path);
     return collection(firestore, path);
   }, [firestore, user, params.companyId]);
 
-  const fetchVendors = useCallback(
-    async (direction: 'next' | 'prev' | 'first' = 'first') => {
-      if (!vendorsCollectionRef) {
-        return;
-      }
-      setIsLoading(true);
+  const fetchVendors = useCallback(async () => {
+    if (!vendorsCollectionRef) {
+      console.log('VendorsPage: fetchVendors called but collection ref is not ready.');
+      return;
+    }
+    setIsLoading(true);
+    console.log('VendorsPage: Starting fetchVendors...');
 
-      let q;
-      const { key, direction: sortDirection } = sortConfig;
+    try {
+      const q = query(vendorsCollectionRef);
+      const documentSnapshots = await getDocs(q);
+      console.log(`VendorsPage: getDocs returned ${documentSnapshots.docs.length} documents.`);
 
-      if (direction === 'next' && lastVisible) {
-        q = query(
-          vendorsCollectionRef,
-          orderBy(key, sortDirection),
-          startAfter(lastVisible),
-          limit(PAGE_SIZE)
-        );
-      } else if (direction === 'prev' && firstVisible) {
-        q = query(
-          vendorsCollectionRef,
-          orderBy(key, sortDirection),
-          endBefore(firstVisible),
-          limitToLast(PAGE_SIZE)
-        );
+      if (documentSnapshots.empty) {
+        console.log('VendorsPage: No vendors found in the collection.');
+        setVendors([]);
       } else {
-        q = query(
-          vendorsCollectionRef,
-          orderBy(key, sortDirection),
-          limit(PAGE_SIZE)
-        );
-        setPage(1);
-      }
-
-      try {
-        const documentSnapshots = await getDocs(q);
-        
-        const newVendors = documentSnapshots.docs.map((doc) => {
+        const newVendors = documentSnapshots.docs.map((doc: DocumentData) => {
+          const data = doc.data();
           return {
             id: doc.id,
-            ...doc.data(),
+            name: data.name || 'N/A',
+            contactEmail: data.contactEmail,
+            defaultExpenseAccount: data.defaultExpenseAccount,
           } as Vendor;
         });
-
-        if (!documentSnapshots.empty) {
-          setLastVisible(documentSnapshots.docs[documentSnapshots.docs.length - 1]);
-          setFirstVisible(documentSnapshots.docs[0]);
-          setVendors(newVendors);
-          setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
-        } else if (direction === 'first') {
-          setVendors([]);
-          setLastVisible(null);
-          setFirstVisible(null);
-          setIsLastPage(true);
-        } else {
-          if (direction === 'next') {
-            setIsLastPage(true);
-          }
-        }
-      } catch (error) {
-        console.error('VendorsPage: Error fetching vendors:', error);
-        setVendors([]);
-      } finally {
-        setIsLoading(false);
+        console.log('VendorsPage: Mapped vendors data:', newVendors);
+        setVendors(newVendors);
       }
-    },
-    [vendorsCollectionRef, lastVisible, firstVisible, sortConfig]
-  );
+    } catch (error) {
+      console.error('VendorsPage: Error fetching vendors:', error);
+      setVendors([]);
+    } finally {
+      setIsLoading(false);
+      console.log('VendorsPage: fetchVendors finished.');
+    }
+  }, [vendorsCollectionRef]);
 
   useEffect(() => {
+    console.log('VendorsPage: useEffect triggered. vendorsCollectionRef is:', vendorsCollectionRef ? 'ready' : 'not ready');
     if (vendorsCollectionRef) {
-      fetchVendors('first');
+      fetchVendors();
+    } else {
+      // If the collection ref isn't ready, we might be waiting for user/firestore, set loading to false
+      setIsLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortConfig, vendorsCollectionRef]);
-
-  const handleNextPage = () => {
-    if (!isLastPage) {
-      setPage(page + 1);
-      fetchVendors('next');
-    }
-  };
-
-  const handlePrevPage = () => {
-    if (page > 1) {
-      setPage(page - 1);
-      fetchVendors('prev');
-    }
-  };
-
-  const handleSort = (key: keyof Vendor) => {
-    setSortConfig((prev) => {
-      const newDirection =
-        prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc';
-      return { key, direction: newDirection };
-    });
-    setLastVisible(null);
-    setFirstVisible(null);
-    setPage(1);
-    setIsLastPage(false);
-  };
-
-  const getSortIcon = (key: keyof Vendor) => {
-    if (sortConfig.key !== key) {
-      return <ArrowUpDown className="ml-2 h-4 w-4" />;
-    }
-    return sortConfig.direction === 'asc' ? (
-      <ArrowUpDown className="ml-2 h-4 w-4" />
-    ) : (
-      <ArrowUpDown className="ml-2 h-4 w-4" />
-    );
-  };
+  }, [vendorsCollectionRef, fetchVendors]);
+  
+  console.log(`VendorsPage: Rendering component. Current vendors state count: ${vendors.length} isLoading: ${isLoading}`);
 
   return (
     <div className="space-y-6">
@@ -218,31 +140,9 @@ export default function VendorsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead
-                    className="cursor-pointer"
-                    onClick={() => handleSort('name')}
-                  >
-                    <div className="flex items-center">
-                      Name {getSortIcon('name')}
-                    </div>
-                  </TableHead>
-                  <TableHead
-                    className="cursor-pointer"
-                    onClick={() => handleSort('contactEmail')}
-                  >
-                    <div className="flex items-center">
-                      Contact Email {getSortIcon('contactEmail')}
-                    </div>
-                  </TableHead>
-                  <TableHead
-                    className="cursor-pointer"
-                    onClick={() => handleSort('defaultExpenseAccount')}
-                  >
-                    <div className="flex items-center">
-                      Default Expense Account{' '}
-                      {getSortIcon('defaultExpenseAccount')}
-                    </div>
-                  </TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Contact Email</TableHead>
+                  <TableHead>Default Expense Account</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -297,24 +197,6 @@ export default function VendorsPage() {
                 )}
               </TableBody>
             </Table>
-          </div>
-          <div className="flex items-center justify-end space-x-2 py-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handlePrevPage}
-              disabled={page <= 1 || isLoading}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleNextPage}
-              disabled={isLastPage || isLoading}
-            >
-              Next
-            </Button>
           </div>
         </CardContent>
       </Card>

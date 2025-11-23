@@ -87,7 +87,7 @@ import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
-import { Customer, ChartOfAccount } from '@/lib/types';
+import { Customer, ChartOfAccount, Vendor } from '@/lib/types';
 import { useStore } from '@/lib/store';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
@@ -170,9 +170,9 @@ export default function CustomersPage() {
   const { user } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
-  const { chartOfAccounts } = useStore();
+  const { chartOfAccounts, setVendors, setCustomers, setChartOfAccounts } = useStore();
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomersState] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [firstVisible, setFirstVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
@@ -236,19 +236,19 @@ export default function CustomersPage() {
       })) as Customer[];
 
       if (documentSnapshots.docs.length > 0) {
-        setCustomers(newCustomers);
+        setCustomersState(newCustomers);
         setLastVisible(documentSnapshots.docs[documentSnapshots.docs.length - 1]);
         setFirstVisible(documentSnapshots.docs[0]);
         setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
       } else {
         if (direction === 'first') {
-            setCustomers([]);
+            setCustomersState([]);
         }
         setIsLastPage(true);
       }
     } catch (error) {
       console.error('CustomersPage: Error fetching customers:', error);
-      setCustomers([]);
+      setCustomersState([]);
       toast({
         variant: 'destructive',
         title: 'Error fetching customers',
@@ -258,13 +258,43 @@ export default function CustomersPage() {
       setIsLoading(false);
     }
   }, [customersCollectionRef, lastVisible, firstVisible, sortConfig, toast]);
+  
+  // Fetch all data for Zustand store (for AI interlinking)
+  useEffect(() => {
+    if (!user || !firestore || !params.companyId) return;
+
+    const fetchAllData = async () => {
+      try {
+        const vendorsRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors`);
+        const customersRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/customers`);
+        const coaRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`);
+
+        const [vendorsSnap, customersSnap, coaSnap] = await Promise.all([
+          getDocs(vendorsRef),
+          getDocs(customersRef),
+          getDocs(coaRef),
+        ]);
+
+        setVendors(vendorsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor)));
+        setCustomers(customersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer)));
+        setChartOfAccounts(coaSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChartOfAccount)));
+      } catch (error) {
+        console.error("Failed to fetch data for global store:", error);
+        toast({
+            variant: "destructive",
+            title: "Data Sync Error",
+            description: "Could not sync all data for AI operations."
+        });
+      }
+    };
+    fetchAllData();
+  }, [user, firestore, params.companyId, setVendors, setCustomers, setChartOfAccounts, toast]);
 
   useEffect(() => {
     if (customersCollectionRef) {
       fetchCustomers('first');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customersCollectionRef, sortConfig]);
+  }, [customersCollectionRef, sortConfig, fetchCustomers]);
 
   const filteredCustomers = useMemo(() => {
     if (!searchTerm) return customers;

@@ -248,7 +248,7 @@ export default function ChartOfAccountsPage() {
     if (coaCollectionRef) {
       fetchAccounts('first');
     }
-  }, [coaCollectionRef, sortConfig]);
+  }, [coaCollectionRef, sortConfig, fetchAccounts]);
 
   const filteredAccounts = useMemo(() => {
     if (!searchTerm) return accounts;

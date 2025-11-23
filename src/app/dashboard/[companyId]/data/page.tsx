@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { FileUp, Building, Users, List, Download, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { Vendor, Customer, ChartOfAccount } from '@/lib/types';
 
 interface ImportCardProps {
   title: string;
@@ -81,20 +82,45 @@ const ImportCard = ({ title, description, icon: Icon, sampleUrl, onImport }: Imp
   );
 };
 
-const sanitizeRow = (row: any, companyId: string) => {
-  const sanitized: { [key: string]: any } = {};
-  for (const key in row) {
-    if (Object.prototype.hasOwnProperty.call(row, key)) {
-      const trimmedKey = key.trim();
-      const value = row[key];
-      sanitized[trimmedKey] = typeof value === 'string' ? value.trim() : value;
+const mapAndValidateRow = (row: any, companyId: string, type: 'vendors' | 'customers' | 'chartOfAccounts'): Partial<Vendor | Customer | ChartOfAccount> | null => {
+    const sanitized: { [key: string]: any } = {};
+    for (const key in row) {
+      if (Object.prototype.hasOwnProperty.call(row, key)) {
+        const trimmedKey = key.trim();
+        const value = row[key];
+        sanitized[trimmedKey] = typeof value === 'string' ? value.trim() : value;
+      }
     }
-  }
-  sanitized.companyId = companyId;
-  return sanitized;
-};
-
-
+  
+    let mappedData: any = { companyId };
+  
+    switch (type) {
+      case 'vendors':
+        if (!sanitized['Vendor Name']) return null; // Required field
+        mappedData.vendorName = sanitized['Vendor Name'];
+        mappedData.vendorEmail = sanitized['Contact Email'];
+        mappedData.defaultExpenseAccount = sanitized['Default Expense Account'];
+        return mappedData as Partial<Vendor>;
+      case 'customers':
+        if (!sanitized['Customer Name']) return null; // Required field
+        mappedData.customerName = sanitized['Customer Name'];
+        mappedData.customerEmail = sanitized['Contact Email'];
+        mappedData.defaultRevenueAccount = sanitized['Default Revenue Account'];
+        return mappedData as Partial<Customer>;
+      case 'chartOfAccounts':
+        if (!sanitized['Account Name']) return null; // Required field
+        mappedData.accountName = sanitized['Account Name'];
+        mappedData.accountNumber = sanitized['Account Number'];
+        mappedData.accountType = sanitized['Account Type'];
+        mappedData.description = sanitized['Description'];
+        mappedData.subAccountName = sanitized['Sub Account Name'];
+        mappedData.subAccountNumber = sanitized['Sub Account Number'];
+        return mappedData as Partial<ChartOfAccount>;
+      default:
+        return null;
+    }
+  };
+  
 export default function DataImportPage() {
   const { companyId } = useParams() as { companyId: string };
   const { user } = useUser();
@@ -126,25 +152,37 @@ export default function DataImportPage() {
         });
         return;
       }
+      
+      const validatedData = json.map(row => mapAndValidateRow(row, companyId, type)).filter(Boolean);
+
+      if (validatedData.length === 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Import Failed',
+          description: 'No valid records found in the file. Please check the column headers and required fields.',
+        });
+        return;
+      }
 
       const collectionPath = `/users/${user.uid}/companies/${companyId}/${type}`;
       const collectionRef = collection(firestore, collectionPath);
       
       const BATCH_SIZE = 499; // Firestore batch limit is 500
-      for (let i = 0; i < json.length; i += BATCH_SIZE) {
+      for (let i = 0; i < validatedData.length; i += BATCH_SIZE) {
         const batch = writeBatch(firestore);
-        const chunk = json.slice(i, i + BATCH_SIZE);
-        chunk.forEach((row) => {
-          const docRef = doc(collectionRef);
-          const sanitizedData = sanitizeRow(row, companyId);
-          batch.set(docRef, sanitizedData);
+        const chunk = validatedData.slice(i, i + BATCH_SIZE);
+        chunk.forEach((dataItem) => {
+          if(dataItem) {
+            const docRef = doc(collectionRef);
+            batch.set(docRef, dataItem);
+          }
         });
         await batch.commit();
       }
 
       toast({
         title: 'Import Successful',
-        description: `${json.length} ${type.replace(/([A-Z])/g, ' $1')} have been imported.`,
+        description: `${validatedData.length} of ${json.length} records have been imported.`,
       });
     } catch (error) {
       console.error('Error importing data:', error);

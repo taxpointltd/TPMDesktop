@@ -35,33 +35,16 @@ const ImportCard = ({ title, description, icon: Icon, sampleUrl, onImport }: Imp
 
   const handleImport = async () => {
     if (!file) return;
-
     setIsImporting(true);
     setProgress(0);
-
-    // Simulate progress for reading the file
-    const reader = new FileReader();
-    reader.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const percentage = (event.loaded / event.total) * 50; // Reading is first 50%
-        setProgress(percentage);
-      }
-    };
-    reader.onload = async () => {
+    try {
       await onImport(file);
-      // Simulate backend processing progress
-      let backendProgress = 50;
-      const interval = setInterval(() => {
-        backendProgress += 10;
-        setProgress(backendProgress);
-        if (backendProgress >= 100) {
-          clearInterval(interval);
-          setIsImporting(false);
-          setFile(null);
-        }
-      }, 200);
-    };
-    reader.readAsArrayBuffer(file);
+    } finally {
+      setIsImporting(false);
+      setFile(null);
+      setProgress(100);
+      setTimeout(() => setProgress(0), 2000);
+    }
   };
 
   return (
@@ -83,7 +66,7 @@ const ImportCard = ({ title, description, icon: Icon, sampleUrl, onImport }: Imp
             Import
           </Button>
         </div>
-        {isImporting && <Progress value={progress} className="w-full" />}
+        {(isImporting || progress > 0) && <Progress value={progress} className="w-full" />}
         <Link href={sampleUrl} download className="text-sm text-center text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-2">
           <Download className="h-4 w-4" />
           Download sample file
@@ -92,6 +75,24 @@ const ImportCard = ({ title, description, icon: Icon, sampleUrl, onImport }: Imp
     </Card>
   );
 };
+
+// Simple sanitation function (can be expanded)
+const sanitizeRow = (row: any) => {
+  const sanitized: { [key: string]: any } = {};
+  for (const key in row) {
+    if (typeof row[key] === 'string') {
+      sanitized[key] = row[key].trim();
+    } else {
+      sanitized[key] = row[key];
+    }
+  }
+  // Ensure required fields exist, even if empty
+  if (row.name) sanitized.name = sanitized.name || 'Unnamed';
+  if (row.accountName) sanitized.accountName = sanitized.accountName || 'Unnamed Account';
+
+  return sanitized;
+};
+
 
 export default function DataImportPage() {
   const { companyId } = useParams() as { companyId: string };
@@ -109,16 +110,20 @@ export default function DataImportPage() {
       const worksheet = workbook.Sheets[sheetName];
       const json: any[] = XLSX.utils.sheet_to_json(worksheet);
 
-      const batch = writeBatch(firestore);
       const collectionPath = `/users/${user.uid}/companies/${companyId}/${type}`;
       const collectionRef = collection(firestore, collectionPath);
       
-      json.forEach((row) => {
-        const docRef = doc(collectionRef);
-        batch.set(docRef, { ...row, companyId });
-      });
-
-      await batch.commit();
+      const BATCH_SIZE = 499; // Firestore batch limit is 500
+      for (let i = 0; i < json.length; i += BATCH_SIZE) {
+        const batch = writeBatch(firestore);
+        const chunk = json.slice(i, i + BATCH_SIZE);
+        chunk.forEach((row) => {
+          const docRef = doc(collectionRef);
+          const sanitizedData = sanitizeRow({ ...row, companyId });
+          batch.set(docRef, sanitizedData);
+        });
+        await batch.commit();
+      }
 
       toast({
         title: 'Import Successful',

@@ -29,7 +29,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PlusCircle, Loader2, ArrowUpDown } from 'lucide-react';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+  } from '@/components/ui/dropdown-menu';
+import { PlusCircle, Loader2, ArrowUpDown, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
 import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
 import React, { useState, useEffect, useCallback } from 'react';
@@ -115,15 +121,19 @@ export default function ChartOfAccountsPage() {
           setFirstVisible(documentSnapshots.docs[0]);
           setAccounts(newAccounts);
           setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
-        } else if (direction !== 'first') {
-          // You are on a page with no results, probably went past the last page
+        } else if (direction === 'first') {
+          setAccounts([]);
+          setLastVisible(null);
+          setFirstVisible(null);
           setIsLastPage(true);
         } else {
-          setAccounts([]);
-          setIsLastPage(true);
+          if (direction === 'next') {
+            setIsLastPage(true);
+          }
         }
       } catch (error) {
         console.error('Error fetching accounts:', error);
+        setAccounts([]);
       } finally {
         setIsLoading(false);
       }
@@ -132,8 +142,10 @@ export default function ChartOfAccountsPage() {
   );
 
   useEffect(() => {
-    fetchAccounts();
-  }, [sortConfig, coaCollectionRef]);
+    if (coaCollectionRef) {
+        fetchAccounts('first');
+    }
+  }, [sortConfig, coaCollectionRef, fetchAccounts]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -151,14 +163,15 @@ export default function ChartOfAccountsPage() {
 
   const handleSort = (key: keyof ChartOfAccount) => {
     setSortConfig((prev) => {
-      if (prev.key === key) {
-        return {
-          key,
-          direction: prev.direction === 'asc' ? 'desc' : 'asc',
-        };
-      }
-      return { key, direction: 'asc' };
+      const newDirection =
+        prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc';
+      return { key, direction: newDirection };
     });
+    // Reset pagination state when sorting changes
+    setLastVisible(null);
+    setFirstVisible(null);
+    setPage(1);
+    setIsLastPage(false);
   };
 
   const getSortIcon = (key: keyof ChartOfAccount) => {
@@ -230,12 +243,13 @@ export default function ChartOfAccountsPage() {
                     </div>
                   </TableHead>
                   <TableHead>Description</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center">
+                    <TableCell colSpan={5} className="text-center">
                       <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                     </TableCell>
                   </TableRow>
@@ -250,12 +264,32 @@ export default function ChartOfAccountsPage() {
                       <TableCell>
                         {account.accountDescription || 'N/A'}
                       </TableCell>
+                      <TableCell>
+                      <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" className="h-8 w-8 p-0">
+                              <span className="sr-only">Open menu</span>
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem>
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive">
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
                     <TableCell
-                      colSpan={4}
+                      colSpan={5}
                       className="text-center text-muted-foreground"
                     >
                       No accounts found. Import them from the Data Import page.
@@ -270,7 +304,7 @@ export default function ChartOfAccountsPage() {
               variant="outline"
               size="sm"
               onClick={handlePrevPage}
-              disabled={page <= 1}
+              disabled={page <= 1 || isLoading}
             >
               Previous
             </Button>
@@ -278,7 +312,7 @@ export default function ChartOfAccountsPage() {
               variant="outline"
               size="sm"
               onClick={handleNextPage}
-              disabled={isLastPage}
+              disabled={isLastPage || isLoading}
             >
               Next
             </Button>

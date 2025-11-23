@@ -68,10 +68,10 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown } from 'lucide-react';
+import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown, Search } from 'lucide-react';
 import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -110,6 +110,7 @@ export default function ChartOfAccountsPage() {
     key: string;
     direction: 'asc' | 'desc';
   }>({ key: 'accountName', direction: 'asc' });
+  const [searchTerm, setSearchTerm] = useState('');
 
   // State for modals and selection
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -173,7 +174,7 @@ export default function ChartOfAccountsPage() {
       try {
         const documentSnapshots = await getDocs(q);
         const newAccounts = documentSnapshots.docs.map((doc) => ({
-          accountId: doc.id,
+          id: doc.id,
           ...doc.data(),
         })) as ChartOfAccount[];
         
@@ -201,7 +202,6 @@ export default function ChartOfAccountsPage() {
       } finally {
         setIsLoading(false);
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
     [coaCollectionRef, lastVisible, firstVisible, sortConfig, toast]
   );
@@ -213,6 +213,13 @@ export default function ChartOfAccountsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coaCollectionRef, sortConfig]);
 
+  const filteredAccounts = useMemo(() => {
+    if (!searchTerm) return accounts;
+    return accounts.filter(account => 
+        (account.accountName && account.accountName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (account.accountNumber && account.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+  }, [accounts, searchTerm]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -264,22 +271,22 @@ export default function ChartOfAccountsPage() {
   const handleFormSubmit = async (values: AccountFormValues) => {
     if (!coaCollectionRef) return;
 
-    const dataToSave: Omit<ChartOfAccount, 'accountId'> = {
-      companyId: params.companyId,
-      accountName: values.accountName,
-      accountNumber: values.accountNumber || '',
-      accountType: values.accountType || '',
-      description: values.description || '',
-      subAccountName: values.subAccountName || '',
-      subAccountNumber: values.subAccountNumber || '',
-      defaultVendorId: selectedAccount?.defaultVendorId || '',
-      defaultCustomerId: selectedAccount?.defaultCustomerId || '',
-      transactions: selectedAccount?.transactions || [],
-    };
+    const dataToSave = {
+        companyId: params.companyId,
+        accountName: values.accountName,
+        accountNumber: values.accountNumber || '',
+        accountType: values.accountType || '',
+        description: values.description || '',
+        subAccountName: values.subAccountName || '',
+        subAccountNumber: values.subAccountNumber || '',
+        defaultVendorId: selectedAccount?.defaultVendorId || '',
+        defaultCustomerId: selectedAccount?.defaultCustomerId || '',
+        transactions: selectedAccount?.transactions || [],
+      };
 
     try {
       if (selectedAccount) {
-        const docRef = doc(coaCollectionRef, selectedAccount.accountId);
+        const docRef = doc(coaCollectionRef, selectedAccount.id);
         await setDoc(docRef, dataToSave, { merge: true });
         toast({ title: 'Account updated', description: `"${values.accountName}" has been updated.` });
       } else {
@@ -292,7 +299,7 @@ export default function ChartOfAccountsPage() {
     } catch (error) {
         console.error('Error saving account:', error);
         const permissionError = new FirestorePermissionError({
-            path: selectedAccount ? doc(coaCollectionRef, selectedAccount.accountId).path : coaCollectionRef.path,
+            path: selectedAccount ? doc(coaCollectionRef, selectedAccount.id).path : coaCollectionRef.path,
             operation: selectedAccount ? 'update' : 'create',
             requestResourceData: dataToSave,
           });
@@ -304,7 +311,7 @@ export default function ChartOfAccountsPage() {
   const handleDeleteAccount = async () => {
     if (!selectedAccount || !coaCollectionRef) return;
     try {
-      const docRef = doc(coaCollectionRef, selectedAccount.accountId);
+      const docRef = doc(coaCollectionRef, selectedAccount.id);
       await deleteDoc(docRef);
       toast({ title: 'Account deleted', description: `"${selectedAccount.accountName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
@@ -314,7 +321,7 @@ export default function ChartOfAccountsPage() {
     } catch (error) {
         console.error('Error deleting account:', error);
         const permissionError = new FirestorePermissionError({
-            path: doc(coaCollectionRef, selectedAccount.accountId).path,
+            path: doc(coaCollectionRef, selectedAccount.id).path,
             operation: 'delete',
           });
         errorEmitter.emit('permission-error', permissionError);
@@ -343,7 +350,7 @@ export default function ChartOfAccountsPage() {
 
   const handleSelectAll = (checked: boolean | string) => {
     if (checked) {
-      setSelectedRows(accounts.map(a => a.accountId));
+      setSelectedRows(filteredAccounts.map(a => a.id));
     } else {
       setSelectedRows([]);
     }
@@ -395,10 +402,24 @@ export default function ChartOfAccountsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Accounts List</CardTitle>
-          <CardDescription>
-            A list of all accounts associated with your company.
-          </CardDescription>
+            <div className="flex items-center justify-between">
+                <div>
+                    <CardTitle>Accounts List</CardTitle>
+                    <CardDescription>
+                        A list of all accounts associated with your company.
+                    </CardDescription>
+                </div>
+                <div className="relative w-full max-w-sm">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        type="search"
+                        placeholder="Search by name or number..."
+                        className="pl-8"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+            </div>
         </CardHeader>
         <CardContent>
           <div className="border rounded-md">
@@ -407,7 +428,7 @@ export default function ChartOfAccountsPage() {
                 <TableRow>
                   <TableHead padding="checkbox" className="w-[50px] px-4">
                     <Checkbox
-                      checked={selectedRows.length > 0 && selectedRows.length === accounts.length}
+                      checked={selectedRows.length > 0 && selectedRows.length === filteredAccounts.length && filteredAccounts.length > 0}
                       onCheckedChange={handleSelectAll}
                       aria-label="Select all"
                     />
@@ -432,13 +453,13 @@ export default function ChartOfAccountsPage() {
                       <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                     </TableCell>
                   </TableRow>
-                ) : accounts && accounts.length > 0 ? (
-                  accounts.map((account) => (
-                    <TableRow key={account.accountId} data-state={selectedRows.includes(account.accountId) && "selected"}>
+                ) : filteredAccounts && filteredAccounts.length > 0 ? (
+                  filteredAccounts.map((account) => (
+                    <TableRow key={account.id} data-state={selectedRows.includes(account.id) && "selected"}>
                       <TableCell padding="checkbox" className="px-4">
                         <Checkbox
-                          checked={selectedRows.includes(account.accountId)}
-                          onCheckedChange={(checked) => handleRowSelect(account.accountId, checked)}
+                          checked={selectedRows.includes(account.id)}
+                          onCheckedChange={(checked) => handleRowSelect(account.id, checked)}
                           aria-label="Select row"
                         />
                       </TableCell>

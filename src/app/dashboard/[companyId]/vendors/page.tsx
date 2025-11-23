@@ -69,10 +69,10 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown } from 'lucide-react';
+import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown, Search } from 'lucide-react';
 import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -108,6 +108,7 @@ export default function VendorsPage() {
     key: string;
     direction: 'asc' | 'desc';
   }>({ key: 'vendorName', direction: 'asc' });
+  const [searchTerm, setSearchTerm] = useState('');
 
   // State for modals
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -150,7 +151,7 @@ export default function VendorsPage() {
     try {
       const documentSnapshots = await getDocs(q);
       const newVendors = documentSnapshots.docs.map((doc) => ({
-        vendorId: doc.id,
+        id: doc.id,
         ...doc.data(),
       })) as Vendor[];
       
@@ -176,7 +177,6 @@ export default function VendorsPage() {
     } finally {
       setIsLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vendorsCollectionRef, lastVisible, firstVisible, sortConfig, toast]);
 
   useEffect(() => {
@@ -185,6 +185,13 @@ export default function VendorsPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vendorsCollectionRef, sortConfig]);
+
+  const filteredVendors = useMemo(() => {
+    if (!searchTerm) return vendors;
+    return vendors.filter(vendor =>
+      vendor.vendorName && vendor.vendorName.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [vendors, searchTerm]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -250,7 +257,7 @@ export default function VendorsPage() {
       }
     }
   
-    const dataToSave: Omit<Vendor, 'vendorId'> = {
+    const dataToSave = {
       companyId: params.companyId,
       vendorName: values.vendorName,
       vendorEmail: values.vendorEmail || '',
@@ -261,7 +268,7 @@ export default function VendorsPage() {
   
     try {
       if (selectedVendor) {
-        const docRef = doc(vendorsCollectionRef, selectedVendor.vendorId);
+        const docRef = doc(vendorsCollectionRef, selectedVendor.id);
         await setDoc(docRef, dataToSave, { merge: true });
         toast({ title: 'Vendor updated', description: `"${values.vendorName}" has been updated.` });
       } else {
@@ -274,7 +281,7 @@ export default function VendorsPage() {
     } catch (error) {
         console.error('Error saving vendor:', error);
         const permissionError = new FirestorePermissionError({
-            path: selectedVendor ? doc(vendorsCollectionRef, selectedVendor.vendorId).path : vendorsCollectionRef.path,
+            path: selectedVendor ? doc(vendorsCollectionRef, selectedVendor.id).path : vendorsCollectionRef.path,
             operation: selectedVendor ? 'update' : 'create',
             requestResourceData: dataToSave,
           });
@@ -286,7 +293,7 @@ export default function VendorsPage() {
   const handleDeleteVendor = async () => {
     if (!selectedVendor || !vendorsCollectionRef) return;
     try {
-      const docRef = doc(vendorsCollectionRef, selectedVendor.vendorId);
+      const docRef = doc(vendorsCollectionRef, selectedVendor.id);
       await deleteDoc(docRef);
       toast({ title: 'Vendor deleted', description: `"${selectedVendor.vendorName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
@@ -296,7 +303,7 @@ export default function VendorsPage() {
     } catch (error) {
         console.error('Error deleting vendor:', error);
         const permissionError = new FirestorePermissionError({
-            path: doc(vendorsCollectionRef, selectedVendor.vendorId).path,
+            path: doc(vendorsCollectionRef, selectedVendor.id).path,
             operation: 'delete',
           });
         errorEmitter.emit('permission-error', permissionError);
@@ -325,7 +332,7 @@ export default function VendorsPage() {
 
   const handleSelectAll = (checked: boolean | string) => {
     if (checked) {
-      setSelectedRows(vendors.map(v => v.vendorId));
+      setSelectedRows(filteredVendors.map(v => v.id));
     } else {
       setSelectedRows([]);
     }
@@ -364,8 +371,22 @@ export default function VendorsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Vendor List</CardTitle>
-          <CardDescription>A list of all vendors associated with your company.</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Vendor List</CardTitle>
+              <CardDescription>A list of all vendors associated with your company.</CardDescription>
+            </div>
+            <div className="relative w-full max-w-sm">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                    type="search"
+                    placeholder="Search by name..."
+                    className="pl-8"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="border rounded-md">
@@ -374,7 +395,7 @@ export default function VendorsPage() {
                 <TableRow>
                   <TableHead padding="checkbox" className="w-[50px] px-4">
                     <Checkbox
-                      checked={selectedRows.length > 0 && selectedRows.length === vendors.length}
+                      checked={selectedRows.length > 0 && selectedRows.length === filteredVendors.length && filteredVendors.length > 0}
                       onCheckedChange={handleSelectAll}
                       aria-label="Select all"
                     />
@@ -388,13 +409,13 @@ export default function VendorsPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow><TableCell colSpan={5} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
-                ) : vendors.length > 0 ? (
-                  vendors.map((vendor) => (
-                    <TableRow key={vendor.vendorId} data-state={selectedRows.includes(vendor.vendorId) && "selected"}>
+                ) : filteredVendors.length > 0 ? (
+                  filteredVendors.map((vendor) => (
+                    <TableRow key={vendor.id} data-state={selectedRows.includes(vendor.id) && "selected"}>
                       <TableCell padding="checkbox" className="px-4">
                         <Checkbox
-                            checked={selectedRows.includes(vendor.vendorId)}
-                            onCheckedChange={(checked) => handleRowSelect(vendor.vendorId, checked)}
+                            checked={selectedRows.includes(vendor.id)}
+                            onCheckedChange={(checked) => handleRowSelect(vendor.id, checked)}
                             aria-label="Select row"
                         />
                       </TableCell>

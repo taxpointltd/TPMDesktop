@@ -69,10 +69,10 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown } from 'lucide-react';
+import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown, Search } from 'lucide-react';
 import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -107,6 +107,7 @@ export default function CustomersPage() {
     key: string;
     direction: 'asc' | 'desc';
   }>({ key: 'customerName', direction: 'asc' });
+  const [searchTerm, setSearchTerm] = useState('');
 
   // State for modals and selection
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -148,7 +149,7 @@ export default function CustomersPage() {
     try {
       const documentSnapshots = await getDocs(q);
       const newCustomers = documentSnapshots.docs.map((doc) => ({
-        customerId: doc.id,
+        id: doc.id,
         ...doc.data(),
       })) as Customer[];
 
@@ -174,7 +175,6 @@ export default function CustomersPage() {
     } finally {
       setIsLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customersCollectionRef, lastVisible, firstVisible, sortConfig, toast]);
 
   useEffect(() => {
@@ -183,6 +183,13 @@ export default function CustomersPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customersCollectionRef, sortConfig]);
+
+  const filteredCustomers = useMemo(() => {
+    if (!searchTerm) return customers;
+    return customers.filter(customer =>
+        customer.customerName && customer.customerName.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [customers, searchTerm]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -248,7 +255,7 @@ export default function CustomersPage() {
       }
     }
   
-    const dataToSave: Omit<Customer, 'customerId'> = {
+    const dataToSave = {
       companyId: params.companyId,
       customerName: values.customerName,
       customerEmail: values.customerEmail || '',
@@ -259,7 +266,7 @@ export default function CustomersPage() {
   
     try {
       if (selectedCustomer) {
-        const docRef = doc(customersCollectionRef, selectedCustomer.customerId);
+        const docRef = doc(customersCollectionRef, selectedCustomer.id);
         await setDoc(docRef, dataToSave, { merge: true });
         toast({ title: 'Customer updated', description: `"${values.customerName}" has been updated.` });
       } else {
@@ -272,7 +279,7 @@ export default function CustomersPage() {
     } catch (error) {
         console.error('Error saving customer:', error);
         const permissionError = new FirestorePermissionError({
-            path: selectedCustomer ? doc(customersCollectionRef, selectedCustomer.customerId).path : customersCollectionRef.path,
+            path: selectedCustomer ? doc(customersCollectionRef, selectedCustomer.id).path : customersCollectionRef.path,
             operation: selectedCustomer ? 'update' : 'create',
             requestResourceData: dataToSave,
           });
@@ -284,7 +291,7 @@ export default function CustomersPage() {
   const handleDeleteCustomer = async () => {
     if (!selectedCustomer || !customersCollectionRef) return;
     try {
-      const docRef = doc(customersCollectionRef, selectedCustomer.customerId);
+      const docRef = doc(customersCollectionRef, selectedCustomer.id);
       await deleteDoc(docRef);
       toast({ title: 'Customer deleted', description: `"${selectedCustomer.customerName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
@@ -294,7 +301,7 @@ export default function CustomersPage() {
     } catch (error) {
         console.error('Error deleting customer:', error);
         const permissionError = new FirestorePermissionError({
-            path: doc(customersCollectionRef, selectedCustomer.customerId).path,
+            path: doc(customersCollectionRef, selectedCustomer.id).path,
             operation: 'delete',
           });
         errorEmitter.emit('permission-error', permissionError);
@@ -323,7 +330,7 @@ export default function CustomersPage() {
   
   const handleSelectAll = (checked: boolean | string) => {
     if (checked) {
-      setSelectedRows(customers.map(c => c.customerId));
+      setSelectedRows(filteredCustomers.map(c => c.id));
     } else {
       setSelectedRows([]);
     }
@@ -362,8 +369,22 @@ export default function CustomersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Customer List</CardTitle>
-          <CardDescription>A list of all customers associated with your company.</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Customer List</CardTitle>
+              <CardDescription>A list of all customers associated with your company.</CardDescription>
+            </div>
+            <div className="relative w-full max-w-sm">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                    type="search"
+                    placeholder="Search by name..."
+                    className="pl-8"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="border rounded-md">
@@ -372,7 +393,7 @@ export default function CustomersPage() {
                 <TableRow>
                   <TableHead padding="checkbox" className="w-[50px] px-4">
                     <Checkbox
-                      checked={selectedRows.length > 0 && selectedRows.length === customers.length}
+                      checked={selectedRows.length > 0 && selectedRows.length === filteredCustomers.length && filteredCustomers.length > 0}
                       onCheckedChange={handleSelectAll}
                       aria-label="Select all"
                     />
@@ -386,13 +407,13 @@ export default function CustomersPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow><TableCell colSpan={5} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
-                ) : customers.length > 0 ? (
-                  customers.map((customer) => (
-                    <TableRow key={customer.customerId} data-state={selectedRows.includes(customer.customerId) && "selected"}>
+                ) : filteredCustomers.length > 0 ? (
+                  filteredCustomers.map((customer) => (
+                    <TableRow key={customer.id} data-state={selectedRows.includes(customer.id) && "selected"}>
                       <TableCell padding="checkbox" className="px-4">
                         <Checkbox
-                            checked={selectedRows.includes(customer.customerId)}
-                            onCheckedChange={(checked) => handleRowSelect(customer.customerId, checked)}
+                            checked={selectedRows.includes(customer.id)}
+                            onCheckedChange={(checked) => handleRowSelect(customer.id, checked)}
                             aria-label="Select row"
                         />
                       </TableCell>

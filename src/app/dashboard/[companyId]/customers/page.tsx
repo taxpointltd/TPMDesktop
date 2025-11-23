@@ -1,6 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
 import { useCollection, useFirestore, useUser } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -8,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlusCircle, Loader2 } from 'lucide-react';
 import { useMemoFirebase } from '@/firebase/provider';
+import { useParams } from 'next/navigation';
 
 interface Customer {
   id: string;
@@ -16,7 +16,8 @@ interface Customer {
   defaultRevenueAccount?: string;
 }
 
-export default function CustomersPage({ params }: { params: { companyId: string } }) {
+export default function CustomersPage() {
+  const params = useParams() as { companyId: string };
   const { user } = useUser();
   const firestore = useFirestore();
 

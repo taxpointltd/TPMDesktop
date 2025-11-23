@@ -92,7 +92,7 @@ export default function ChartOfAccountsPage() {
   const firestore = useFirestore();
   const { toast } = useToast();
 
-  const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts, updateChartOfAccount, removeChartOfAccount, removeChartOfAccounts } = useStore();
+  const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts, updateVendor, updateCustomer, updateChartOfAccount, removeChartOfAccount, removeChartOfAccounts } = useStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isLinking, setIsLinking] = useState(false);
@@ -235,7 +235,7 @@ export default function ChartOfAccountsPage() {
 
          // Update global state
          const customer = customers.find(c => c.id === link.customerId);
-         if(customer) useStore.getState().updateCustomer({...customer, defaultRevenueAccountId: link.chartOfAccountId});
+         if(customer) updateCustomer({...customer, defaultRevenueAccountId: link.chartOfAccountId});
          const account = chartOfAccounts.find(a => a.id === link.chartOfAccountId);
          if(account) updateChartOfAccount({...account, defaultCustomerId: link.customerId});
       });

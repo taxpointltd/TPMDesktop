@@ -1,36 +1,139 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { FileUp, Building, Users, List, Download } from "lucide-react";
-import Link from "next/link";
+'use client';
 
-const ImportCard = ({ title, description, icon: Icon, sampleUrl }: { title: string, description: string, icon: React.ElementType, sampleUrl: string }) => (
+import { useState } from 'react';
+import { useParams } from 'next/navigation';
+import { useUser, useFirestore } from '@/firebase';
+import { useToast } from '@/hooks/use-toast';
+import { collection, doc, writeBatch } from 'firebase/firestore';
+import * as XLSX from 'xlsx';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import { FileUp, Building, Users, List, Download, Loader2 } from 'lucide-react';
+import Link from 'next/link';
+
+interface ImportCardProps {
+  title: string;
+  description: string;
+  icon: React.ElementType;
+  sampleUrl: string;
+  onImport: (file: File) => Promise<void>;
+  companyId: string;
+}
+
+const ImportCard = ({ title, description, icon: Icon, sampleUrl, onImport }: ImportCardProps) => {
+  const [file, setFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setFile(e.target.files[0]);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!file) return;
+
+    setIsImporting(true);
+    setProgress(0);
+
+    // Simulate progress for reading the file
+    const reader = new FileReader();
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percentage = (event.loaded / event.total) * 50; // Reading is first 50%
+        setProgress(percentage);
+      }
+    };
+    reader.onload = async () => {
+      await onImport(file);
+      // Simulate backend processing progress
+      let backendProgress = 50;
+      const interval = setInterval(() => {
+        backendProgress += 10;
+        setProgress(backendProgress);
+        if (backendProgress >= 100) {
+          clearInterval(interval);
+          setIsImporting(false);
+          setFile(null);
+        }
+      }, 200);
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  return (
     <Card>
-        <CardHeader>
-            <div className="flex items-center gap-4">
-                <Icon className="h-8 w-8 text-muted-foreground" />
-                <div>
-                    <CardTitle>{title}</CardTitle>
-                    <CardDescription>{description}</CardDescription>
-                </div>
-            </div>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-             <div className="flex items-center gap-2">
-                <Input type="file" className="cursor-pointer" />
-                <Button>
-                    <FileUp className="mr-2 h-4 w-4" /> Import
-                </Button>
-            </div>
-            <Link href={sampleUrl} download className="text-sm text-center text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-2">
-                <Download className="h-4 w-4"/>
-                Download sample file
-            </Link>
-        </CardContent>
+      <CardHeader>
+        <div className="flex items-center gap-4">
+          <Icon className="h-8 w-8 text-muted-foreground" />
+          <div>
+            <CardTitle>{title}</CardTitle>
+            <CardDescription>{description}</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="flex items-center gap-2">
+          <Input type="file" className="cursor-pointer" onChange={handleFileChange} accept=".csv, .xlsx" disabled={isImporting} />
+          <Button onClick={handleImport} disabled={!file || isImporting}>
+            {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
+            Import
+          </Button>
+        </div>
+        {isImporting && <Progress value={progress} className="w-full" />}
+        <Link href={sampleUrl} download className="text-sm text-center text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-2">
+          <Download className="h-4 w-4" />
+          Download sample file
+        </Link>
+      </CardContent>
     </Card>
-)
+  );
+};
 
 export default function DataImportPage() {
+  const { companyId } = useParams() as { companyId: string };
+  const { user } = useUser();
+  const firestore = useFirestore();
+  const { toast } = useToast();
+
+  const handleDataImport = async (file: File, type: 'vendors' | 'customers' | 'chartOfAccounts') => {
+    if (!user || !firestore || !companyId) return;
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const json: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+      const batch = writeBatch(firestore);
+      const collectionPath = `/users/${user.uid}/companies/${companyId}/${type}`;
+      const collectionRef = collection(firestore, collectionPath);
+      
+      json.forEach((row) => {
+        const docRef = doc(collectionRef);
+        batch.set(docRef, { ...row, companyId });
+      });
+
+      await batch.commit();
+
+      toast({
+        title: 'Import Successful',
+        description: `Your ${type.replace(/([A-Z])/g, ' $1').toLowerCase()} have been imported successfully.`,
+      });
+    } catch (error) {
+      console.error('Error importing data:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Import Failed',
+        description: 'There was an error importing your data. Please check the file format and try again.',
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -40,23 +143,29 @@ export default function DataImportPage() {
         </p>
       </div>
       <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
-        <ImportCard 
-            title="Import Vendors"
-            description="Upload your list of vendors."
-            icon={Building}
-            sampleUrl="/samples/vendors.csv"
+        <ImportCard
+          title="Import Vendors"
+          description="Upload your list of vendors."
+          icon={Building}
+          sampleUrl="/samples/vendors.csv"
+          onImport={(file) => handleDataImport(file, 'vendors')}
+          companyId={companyId}
         />
-        <ImportCard 
-            title="Import Customers"
-            description="Upload your list of customers."
-            icon={Users}
-            sampleUrl="/samples/customers.csv"
+        <ImportCard
+          title="Import Customers"
+          description="Upload your list of customers."
+          icon={Users}
+          sampleUrl="/samples/customers.csv"
+          onImport={(file) => handleDataImport(file, 'customers')}
+          companyId={companyId}
         />
-        <ImportCard 
-            title="Import Chart of Accounts"
-            description="Upload your chart of accounts."
-            icon={List}
-            sampleUrl="/samples/chart-of-accounts.csv"
+        <ImportCard
+          title="Import Chart of Accounts"
+          description="Upload your chart of accounts."
+          icon={List}
+          sampleUrl="/samples/chart-of-accounts.csv"
+          onImport={(file) => handleDataImport(file, 'chartOfAccounts')}
+          companyId={companyId}
         />
       </div>
     </div>

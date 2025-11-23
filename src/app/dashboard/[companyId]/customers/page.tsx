@@ -109,7 +109,7 @@ export default function CustomersPage() {
   const [sortConfig, setSortConfig] = useState<{
     key: string;
     direction: 'asc' | 'desc';
-  }>({ key: 'Name', direction: 'asc' });
+  }>({ key: 'name', direction: 'asc' });
 
   // State for modals
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -150,9 +150,9 @@ export default function CustomersPage() {
       const documentSnapshots = await getDocs(q);
       const newCustomers = documentSnapshots.docs.map((doc: DocumentData) => ({
         id: doc.id,
-        name: doc.data()['Name'] || 'N/A',
-        contactEmail: doc.data()['Contact Email'],
-        defaultRevenueAccount: doc.data()['Default Revenue Account'],
+        name: doc.data()['name'] || 'N/A',
+        contactEmail: doc.data()['contactEmail'],
+        defaultRevenueAccount: doc.data()['defaultRevenueAccount'],
       }));
 
       if (documentSnapshots.docs.length > 0) {
@@ -183,7 +183,8 @@ export default function CustomersPage() {
     if (customersCollectionRef) {
       fetchCustomers('first');
     }
-  }, [customersCollectionRef, sortConfig, fetchCustomers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customersCollectionRef, sortConfig]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -232,9 +233,9 @@ export default function CustomersPage() {
     if (!customersCollectionRef) return;
 
     const dataToSave = {
-      'Name': values.name,
-      'Contact Email': values.contactEmail || null,
-      'Default Revenue Account': values.defaultRevenueAccount || null,
+      'name': values.name,
+      'contactEmail': values.contactEmail || null,
+      'defaultRevenueAccount': values.defaultRevenueAccount || null,
     };
 
     try {
@@ -305,9 +306,9 @@ export default function CustomersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('Name')}><div className="flex items-center">Name {getSortIcon('Name')}</div></TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('Contact Email')}><div className="flex items-center">Contact Email {getSortIcon('Contact Email')}</div></TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('Default Revenue Account')}><div className="flex items-center">Default Revenue Account {getSortIcon('Default Revenue Account')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('name')}><div className="flex items-center">Name {getSortIcon('name')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('contactEmail')}><div className="flex items-center">Contact Email {getSortIcon('contactEmail')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('defaultRevenueAccount')}><div className="flex items-center">Default Revenue Account {getSortIcon('defaultRevenueAccount')}</div></TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>

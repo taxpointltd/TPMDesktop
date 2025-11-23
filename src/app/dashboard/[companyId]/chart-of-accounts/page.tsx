@@ -168,6 +168,9 @@ export default function ChartOfAccountsPage() {
         const aValue = a[sortConfig.key];
         const bValue = b[sortConfig.key];
 
+        if (!aValue) return 1;
+        if (!bValue) return -1;
+        
         if (aValue < bValue) {
           return sortConfig.direction === 'asc' ? -1 : 1;
         }
@@ -203,16 +206,16 @@ export default function ChartOfAccountsPage() {
 
       result.vendorLinks.forEach(link => {
         const vendorRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors/${link.vendorId}`);
-        batch.update(vendorRef, { defaultExpenseAccountId: link.chartOfAccountId });
+        batch.set(vendorRef, { defaultExpenseAccountId: link.chartOfAccountId }, { merge: true });
         const coaRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts/${link.chartOfAccountId}`);
-        batch.update(coaRef, { defaultVendorId: link.vendorId });
+        batch.set(coaRef, { defaultVendorId: link.vendorId }, { merge: true });
       });
 
       result.customerLinks.forEach(link => {
         const customerRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/customers/${link.customerId}`);
-        batch.update(customerRef, { defaultRevenueAccountId: link.chartOfAccountId });
+        batch.set(customerRef, { defaultRevenueAccountId: link.chartOfAccountId }, { merge: true });
          const coaRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts/${link.chartOfAccountId}`);
-         batch.update(coaRef, { defaultCustomerId: link.customerId });
+         batch.set(coaRef, { defaultCustomerId: link.customerId }, { merge: true });
       });
 
       await batch.commit();
@@ -622,3 +625,5 @@ export default function ChartOfAccountsPage() {
     </div>
   );
 }
+
+    

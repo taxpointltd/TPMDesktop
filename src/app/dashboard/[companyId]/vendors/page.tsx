@@ -3,14 +3,12 @@
 import { useFirestore, useUser } from '@/firebase';
 import {
   collection,
-  query,
-  where,
-  getDocs,
   doc,
   deleteDoc,
   setDoc,
   addDoc,
   writeBatch,
+  getDocs,
 } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -235,6 +233,9 @@ export default function VendorsPage() {
       const aValue = a[sortConfig.key];
       const bValue = b[sortConfig.key];
 
+      if (!aValue) return 1;
+      if (!bValue) return -1;
+
       if (aValue < bValue) {
         return sortConfig.direction === 'asc' ? -1 : 1;
       }
@@ -281,8 +282,8 @@ export default function VendorsPage() {
   
     try {
       const batch = writeBatch(firestore);
-      batch.update(vendorRef, { defaultExpenseAccountId: accountId });
-      batch.update(accountRef, { defaultVendorId: vendorToLink.id });
+      batch.set(vendorRef, { defaultExpenseAccountId: accountId }, { merge: true });
+      batch.set(accountRef, { defaultVendorId: vendorToLink.id }, { merge: true });
       await batch.commit();
 
       const updatedVendor = { ...vendorToLink, defaultExpenseAccountId: accountId };
@@ -338,7 +339,7 @@ export default function VendorsPage() {
       } else {
         const newDoc = await addDoc(vendorsCollectionRef, dataToSave);
         setVendors([...vendors, { ...dataToSave, id: newDoc.id }]);
-        toast({ title: 'Vendor created', description: `"${values.vendorName}" has been added.` });
+        toast({ title: 'Vendor created', description: `"${values.vendorName}" has been created.` });
       }
       setIsFormOpen(false);
       setSelectedRows([]);
@@ -606,3 +607,5 @@ export default function VendorsPage() {
     </div>
   );
 }
+
+    

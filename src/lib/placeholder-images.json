@@ -1,3 +1,10 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "auth-background",
+      "description": "Abstract background for the authentication page.",
+      "imageUrl": "https://images.unsplash.com/photo-1573655349936-de6bed86f839?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw5fHxhYnN0cmFjdCUyMHRleHR1cmV8ZW58MHx8fHwxNzYzODYyNTkyfDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "abstract texture"
+    }
+  ]
 }

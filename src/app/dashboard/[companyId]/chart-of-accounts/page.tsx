@@ -12,6 +12,10 @@ import {
   DocumentData,
   endBefore,
   limitToLast,
+  doc,
+  deleteDoc,
+  setDoc,
+  addDoc,
 } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,15 +34,48 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-  } from '@/components/ui/dropdown-menu';
-import { PlusCircle, Loader2, ArrowUpDown, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown } from 'lucide-react';
 import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
 import React, { useState, useEffect, useCallback } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { useToast } from '@/hooks/use-toast';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError } from '@/firebase/errors';
 
 interface ChartOfAccount {
   id: string;
@@ -48,42 +85,61 @@ interface ChartOfAccount {
   accountDescription?: string;
 }
 
+const accountSchema = z.object({
+    accountName: z.string().min(1, 'Account name is required.'),
+    accountNumber: z.string().optional(),
+    accountType: z.string().optional(),
+    accountDescription: z.string().optional(),
+  });
+
+type AccountFormValues = z.infer<typeof accountSchema>;
+
 const PAGE_SIZE = 10;
 
 export default function ChartOfAccountsPage() {
   const params = useParams() as { companyId: string };
   const { user } = useUser();
   const firestore = useFirestore();
+  const { toast } = useToast();
 
   const [accounts, setAccounts] = useState<ChartOfAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [lastVisible, setLastVisible] =
-    useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [firstVisible, setFirstVisible] =
-    useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [firstVisible, setFirstVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [isLastPage, setIsLastPage] = useState(false);
   const [page, setPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{
-    key: keyof ChartOfAccount;
+    key: string;
     direction: 'asc' | 'desc';
   }>({ key: 'accountName', direction: 'asc' });
 
+  // State for modals
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState<ChartOfAccount | null>(null);
+
+  const form = useForm<AccountFormValues>({
+    resolver: zodResolver(accountSchema),
+    defaultValues: {
+        accountName: '',
+        accountNumber: '',
+        accountType: '',
+        accountDescription: '',
+    },
+  });
+
+
   const coaCollectionRef = useMemoFirebase(() => {
-    if (!user || !firestore) {
-      return null;
-    }
-    const path = `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`;
+    if (!user || !firestore) return null;
     return collection(
       firestore,
-      path
+      `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`
     );
   }, [firestore, user, params.companyId]);
 
   const fetchAccounts = useCallback(
     async (direction: 'next' | 'prev' | 'first' = 'first') => {
-      if (!coaCollectionRef) {
-        return;
-      }
+      if (!coaCollectionRef) return;
       setIsLoading(true);
 
       let q;
@@ -114,47 +170,47 @@ export default function ChartOfAccountsPage() {
 
       try {
         const documentSnapshots = await getDocs(q);
-
-        const newAccounts = documentSnapshots.docs.map((doc) => {
-          return {
-            id: doc.id,
-            ...doc.data(),
-          } as ChartOfAccount;
-        });
-
+        const newAccounts = documentSnapshots.docs.map((doc: DocumentData) => ({
+          id: doc.id,
+          accountName: doc.data().accountName || 'N/A',
+          accountNumber: doc.data().accountNumber,
+          accountType: doc.data().accountType,
+          accountDescription: doc.data().accountDescription,
+        }));
+        
         if (!documentSnapshots.empty) {
+          setAccounts(newAccounts);
           setLastVisible(
             documentSnapshots.docs[documentSnapshots.docs.length - 1]
           );
           setFirstVisible(documentSnapshots.docs[0]);
-          setAccounts(newAccounts);
           setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
-        } else if (direction === 'first') {
-          setAccounts([]);
-          setLastVisible(null);
-          setFirstVisible(null);
-          setIsLastPage(true);
         } else {
-          if (direction === 'next') {
-            setIsLastPage(true);
-          }
+            if (direction === 'first') {
+                setAccounts([]);
+            }
+          setIsLastPage(true);
         }
       } catch (error) {
-        console.error('ChartOfAccountsPage: Error fetching accounts:', error);
+        console.error('Error fetching accounts:', error);
         setAccounts([]);
+        toast({
+            variant: 'destructive',
+            title: 'Error fetching accounts',
+            description: 'Could not load chart of accounts data. Please check your connection and permissions.',
+          });
       } finally {
         setIsLoading(false);
       }
     },
-    [coaCollectionRef, lastVisible, firstVisible, sortConfig]
+    [coaCollectionRef, lastVisible, firstVisible, sortConfig, toast]
   );
 
   useEffect(() => {
     if (coaCollectionRef) {
         fetchAccounts('first');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortConfig, coaCollectionRef]);
+  }, [coaCollectionRef, sortConfig, fetchAccounts]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -170,29 +226,96 @@ export default function ChartOfAccountsPage() {
     }
   };
 
-  const handleSort = (key: keyof ChartOfAccount) => {
-    setSortConfig((prev) => {
-      const newDirection =
-        prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc';
-      return { key, direction: newDirection };
-    });
+  const handleSort = (key: string) => {
+    setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc' }));
     setLastVisible(null);
     setFirstVisible(null);
     setPage(1);
     setIsLastPage(false);
   };
+  
+  const openAddModal = () => {
+    setSelectedAccount(null);
+    form.reset({ accountName: '', accountNumber: '', accountType: '', accountDescription: '' });
+    setIsFormOpen(true);
+  };
 
-  const getSortIcon = (key: keyof ChartOfAccount) => {
+  const openEditModal = (account: ChartOfAccount) => {
+    setSelectedAccount(account);
+    form.reset({
+        accountName: account.accountName,
+        accountNumber: account.accountNumber || '',
+        accountType: account.accountType || '',
+        accountDescription: account.accountDescription || '',
+    });
+    setIsFormOpen(true);
+  };
+
+  const openDeleteConfirm = (account: ChartOfAccount) => {
+    setSelectedAccount(account);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const handleFormSubmit = async (values: AccountFormValues) => {
+    if (!coaCollectionRef) return;
+
+    const dataToSave = {
+      accountName: values.accountName,
+      accountNumber: values.accountNumber || null,
+      accountType: values.accountType || null,
+      accountDescription: values.accountDescription || null,
+    };
+
+    try {
+      if (selectedAccount) {
+        const docRef = doc(coaCollectionRef, selectedAccount.id);
+        await setDoc(docRef, dataToSave, { merge: true });
+        toast({ title: 'Account updated', description: `"${values.accountName}" has been updated.` });
+      } else {
+        await addDoc(coaCollectionRef, dataToSave);
+        toast({ title: 'Account created', description: `"${values.accountName}" has been added.` });
+      }
+      setIsFormOpen(false);
+      fetchAccounts('first');
+    } catch (error) {
+        console.error('Error saving account:', error);
+        const permissionError = new FirestorePermissionError({
+            path: selectedAccount ? doc(coaCollectionRef, selectedAccount.id).path : coaCollectionRef.path,
+            operation: selectedAccount ? 'update' : 'create',
+            requestResourceData: dataToSave,
+          });
+        errorEmitter.emit('permission-error', permissionError);
+        toast({ variant: 'destructive', title: 'Save failed', description: 'Could not save the account. Check permissions.' });
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!selectedAccount || !coaCollectionRef) return;
+    try {
+      const docRef = doc(coaCollectionRef, selectedAccount.id);
+      await deleteDoc(docRef);
+      toast({ title: 'Account deleted', description: `"${selectedAccount.accountName}" has been deleted.` });
+      setIsDeleteConfirmOpen(false);
+      setSelectedAccount(null);
+      fetchAccounts('first');
+    } catch (error) {
+        console.error('Error deleting account:', error);
+        const permissionError = new FirestorePermissionError({
+            path: doc(coaCollectionRef, selectedAccount.id).path,
+            operation: 'delete',
+          });
+        errorEmitter.emit('permission-error', permissionError);
+        toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete the account. Check permissions.' });
+    }
+  };
+
+  const getSortIcon = (key: string) => {
     if (sortConfig.key !== key) {
       return <ArrowUpDown className="ml-2 h-4 w-4" />;
     }
-    return sortConfig.direction === 'asc' ? (
-      <ArrowUpDown className="ml-2 h-4 w-4" />
-    ) : (
-      <ArrowUpDown className="ml-2 h-4 w-4" />
-    );
+    return <ArrowUpDown className="ml-2 h-4 w-4" />;
   };
-  
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -208,7 +331,7 @@ export default function ChartOfAccountsPage() {
             .
           </p>
         </div>
-        <Button>
+        <Button onClick={openAddModal}>
           <PlusCircle className="mr-2 h-4 w-4" />
           Add Account
         </Button>
@@ -226,29 +349,14 @@ export default function ChartOfAccountsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead
-                    className="cursor-pointer"
-                    onClick={() => handleSort('accountName')}
-                  >
-                    <div className="flex items-center">
-                      Account Name {getSortIcon('accountName')}
-                    </div>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('accountName')}>
+                    <div className="flex items-center">Account Name {getSortIcon('accountName')}</div>
                   </TableHead>
-                  <TableHead
-                    className="cursor-pointer"
-                    onClick={() => handleSort('accountNumber')}
-                  >
-                    <div className="flex items-center">
-                      Account Number {getSortIcon('accountNumber')}
-                    </div>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('accountNumber')}>
+                    <div className="flex items-center">Account Number {getSortIcon('accountNumber')}</div>
                   </TableHead>
-                  <TableHead
-                    className="cursor-pointer"
-                    onClick={() => handleSort('accountType')}
-                  >
-                    <div className="flex items-center">
-                      Account Type {getSortIcon('accountType')}
-                    </div>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('accountType')}>
+                    <div className="flex items-center">Account Type {getSortIcon('accountType')}</div>
                   </TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Actions</TableHead>
@@ -267,28 +375,17 @@ export default function ChartOfAccountsPage() {
                       <TableCell className="font-medium">
                         {account.accountName}
                       </TableCell>
-                      <TableCell>{account.accountNumber || 'N/A'}</TableCell>                      
+                      <TableCell>{account.accountNumber || 'N/A'}</TableCell>
                       <TableCell>{account.accountType || 'N/A'}</TableCell>
                       <TableCell>
                         {account.accountDescription || 'N/A'}
                       </TableCell>
                       <TableCell>
                       <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" className="h-8 w-8 p-0">
-                              <span className="sr-only">Open menu</span>
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
+                          <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Open menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem>
-                              <Edit className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive">
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openEditModal(account)}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openDeleteConfirm(account)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -296,11 +393,8 @@ export default function ChartOfAccountsPage() {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell
-                      colSpan={5}
-                      className="text-center text-muted-foreground"
-                    >
-                      No accounts found. Import them from the Data Import page.
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      No accounts found. Import them or add a new one.
                     </TableCell>
                   </TableRow>
                 )}
@@ -327,6 +421,85 @@ export default function ChartOfAccountsPage() {
           </div>
         </CardContent>
       </Card>
+      
+      {/* Add/Edit Account Dialog */}
+      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>{selectedAccount ? 'Edit Account' : 'Add New Account'}</DialogTitle>
+            <DialogDescription>{selectedAccount ? 'Update the details of your account.' : 'Fill in the information for the new account.'}</DialogDescription>
+          </DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-4 py-4">
+              <FormField
+                control={form.control}
+                name="accountName"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Account Name</FormLabel>
+                    <FormControl><Input placeholder="e.g., Office Supplies" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="accountNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Account Number (Optional)</FormLabel>
+                    <FormControl><Input placeholder="e.g., 60210" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="accountType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Account Type (Optional)</FormLabel>
+                    <FormControl><Input placeholder="e.g., Expense" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+               <FormField
+                control={form.control}
+                name="accountDescription"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Account Description (Optional)</FormLabel>
+                    <FormControl><Input placeholder="e.g., For office supply purchases" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setIsFormOpen(false)}>Cancel</Button>
+                <Button type="submit" disabled={form.formState.isSubmitting}>
+                  {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone. This will permanently delete the account "{selectedAccount?.accountName}".</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteAccount} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

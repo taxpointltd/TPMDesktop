@@ -3,7 +3,7 @@
 import { signOut } from "firebase/auth";
 import { LogOut, User as UserIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { auth } from "@/lib/firebase";
+import { useAuth } from "@/firebase";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 
 export function AppHeader() {
   const router = useRouter();
+  const auth = useAuth();
   const user = auth.currentUser;
 
   const handleLogout = async () => {

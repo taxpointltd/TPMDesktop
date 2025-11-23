@@ -31,7 +31,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { auth } from "@/lib/firebase";
+import { useAuth } from "@/firebase";
 import { Logo } from "./logo";
 import { Loader2 } from "lucide-react";
 
@@ -46,6 +46,7 @@ export function AuthPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
+  const auth = useAuth();
   const authBg = PlaceHolderImages.find((img) => img.id === "auth-background");
 
   const form = useForm<AuthFormValues>({

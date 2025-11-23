@@ -9,6 +9,7 @@ import {
   FileText,
   Home,
   Users,
+  List,
 } from "lucide-react";
 import { Logo } from "@/components/logo";
 import {
@@ -32,6 +33,7 @@ export function AppSidebar() {
     { href: `/dashboard/${companyId}/transactions`, label: 'Transactions', icon: FileText, requiresCompany: true },
     { href: `/dashboard/${companyId}/vendors`, label: 'Vendors', icon: Building, requiresCompany: true },
     { href: `/dashboard/${companyId}/customers`, label: 'Customers', icon: Users, requiresCompany: true },
+    { href: `/dashboard/${companyId}/chart-of-accounts`, label: 'Chart of Accounts', icon: List, requiresCompany: true },
   ];
 
   return (

@@ -68,7 +68,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown, Search } from 'lucide-react';
+import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown, Search, Link as LinkIcon, Sparkles } from 'lucide-react';
 import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -78,7 +78,9 @@ import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
-import { ChartOfAccount } from '@/lib/types';
+import { ChartOfAccount, Vendor, Customer } from '@/lib/types';
+import { useStore } from '@/lib/store';
+import { interlinkAccounts } from '@/ai/flows/interlink-accounts-flow';
 
 
 const accountSchema = z.object({
@@ -100,8 +102,11 @@ export default function ChartOfAccountsPage() {
   const firestore = useFirestore();
   const { toast } = useToast();
 
+  const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts } = useStore();
+
   const [accounts, setAccounts] = useState<ChartOfAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLinking, setIsLinking] = useState(false);
   const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [firstVisible, setFirstVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [isLastPage, setIsLastPage] = useState(false);
@@ -206,6 +211,38 @@ export default function ChartOfAccountsPage() {
     },
     [coaCollectionRef, lastVisible, firstVisible, sortConfig, toast]
   );
+  
+  // Fetch all data for Zustand store (for AI interlinking)
+  useEffect(() => {
+    if (!user || !firestore || !params.companyId) return;
+
+    const fetchAllData = async () => {
+      try {
+        const vendorsRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors`);
+        const customersRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/customers`);
+        const coaRef = collection(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`);
+
+        const [vendorsSnap, customersSnap, coaSnap] = await Promise.all([
+          getDocs(vendorsRef),
+          getDocs(customersRef),
+          getDocs(coaRef),
+        ]);
+
+        setVendors(vendorsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vendor)));
+        setCustomers(customersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Customer)));
+        setChartOfAccounts(coaSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ChartOfAccount)));
+      } catch (error) {
+        console.error("Failed to fetch data for global store:", error);
+        toast({
+            variant: "destructive",
+            title: "Data Sync Error",
+            description: "Could not sync all data for AI operations."
+        });
+      }
+    };
+    fetchAllData();
+  }, [user, firestore, params.companyId, setVendors, setCustomers, setChartOfAccounts, toast]);
+
 
   useEffect(() => {
     if (coaCollectionRef) {
@@ -220,6 +257,67 @@ export default function ChartOfAccountsPage() {
         (account.accountNumber && account.accountNumber.toLowerCase().includes(searchTerm.toLowerCase()))
     );
   }, [accounts, searchTerm]);
+
+  const handleRunInterlink = async () => {
+    if (!firestore || !user || !vendors.length || !customers.length || !chartOfAccounts.length) {
+      toast({
+        title: 'Not Ready',
+        description: 'Ensure vendors, customers, and chart of accounts are loaded before running AI interlink.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setIsLinking(true);
+    toast({ title: 'AI Interlinking in Progress...', description: 'Please wait while Gemini establishes connections.' });
+
+    try {
+      const result = await interlinkAccounts({
+        vendors: JSON.stringify(vendors.map(({ id, defaultExpenseAccount }) => ({ id, defaultExpenseAccount }))),
+        customers: JSON.stringify(customers.map(({ id, defaultRevenueAccount }) => ({ id, defaultRevenueAccount }))),
+        chartOfAccounts: JSON.stringify(chartOfAccounts.map(({ id, accountName, accountNumber, subAccountName, subAccountNumber }) => ({ id, accountName, accountNumber, subAccountName, subAccountNumber }))),
+      });
+
+      const batch = writeBatch(firestore);
+
+      // Update vendors
+      result.vendorLinks.forEach(link => {
+        const vendorRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors/${link.vendorId}`);
+        batch.update(vendorRef, { defaultExpenseAccountId: link.chartOfAccountId });
+        // Also update the linked COA
+        const coaRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts/${link.chartOfAccountId}`);
+        batch.update(coaRef, { defaultVendorId: link.vendorId });
+      });
+
+      // Update customers
+      result.customerLinks.forEach(link => {
+        const customerRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/customers/${link.customerId}`);
+        batch.update(customerRef, { defaultRevenueAccountId: link.chartOfAccountId });
+         // Also update the linked COA
+         const coaRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts/${link.chartOfAccountId}`);
+         batch.update(coaRef, { defaultCustomerId: link.customerId });
+      });
+
+      await batch.commit();
+
+      toast({
+        title: 'Interlinking Complete!',
+        description: `${result.vendorLinks.length} vendor(s) and ${result.customerLinks.length} customer(s) have been linked.`,
+      });
+       // Re-fetch data to show link icons
+       fetchAccounts('first');
+
+    } catch (error) {
+      console.error('AI Interlinking failed:', error);
+      toast({
+        variant: 'destructive',
+        title: 'AI Interlinking Failed',
+        description: 'An unexpected error occurred. Please try again.',
+      });
+    } finally {
+      setIsLinking(false);
+    }
+  };
+
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -281,7 +379,6 @@ export default function ChartOfAccountsPage() {
         subAccountNumber: values.subAccountNumber || '',
         defaultVendorId: selectedAccount?.defaultVendorId || '',
         defaultCustomerId: selectedAccount?.defaultCustomerId || '',
-        transactions: selectedAccount?.transactions || [],
       };
 
     try {
@@ -393,6 +490,10 @@ export default function ChartOfAccountsPage() {
                     Delete ({selectedRows.length})
                 </Button>
             )}
+             <Button onClick={handleRunInterlink} disabled={isLinking} variant="outline">
+                {isLinking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                Run Interlink with AI
+            </Button>
             <Button onClick={openAddModal}>
               <PlusCircle className="mr-2 h-4 w-4" />
               Add Account
@@ -443,13 +544,14 @@ export default function ChartOfAccountsPage() {
                     <div className="flex items-center">Account Type {getSortIcon('accountType')}</div>
                   </TableHead>
                   <TableHead>Description</TableHead>
+                  <TableHead>Links</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center">
+                    <TableCell colSpan={7} className="text-center">
                       <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                     </TableCell>
                   </TableRow>
@@ -475,6 +577,11 @@ export default function ChartOfAccountsPage() {
                       <TableCell>
                         {account.description || 'N/A'}
                       </TableCell>
+                       <TableCell>
+                        {(account.defaultVendorId || account.defaultCustomerId) && (
+                          <LinkIcon className="h-4 w-4 text-accent" />
+                        )}
+                      </TableCell>
                       <TableCell>
                       <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Open menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
@@ -488,7 +595,7 @@ export default function ChartOfAccountsPage() {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground">
                       No accounts found. Import them or add a new one.
                     </TableCell>
                   </TableRow>

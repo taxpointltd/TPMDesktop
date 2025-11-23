@@ -68,8 +68,16 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+  } from "@/components/ui/command"
 import { Input } from '@/components/ui/input';
-import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown, Search } from 'lucide-react';
+import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown, Search, Link as LinkIcon, ChevronsUpDown } from 'lucide-react';
 import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -79,7 +87,10 @@ import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
-import { Vendor } from '@/lib/types';
+import { Vendor, ChartOfAccount } from '@/lib/types';
+import { useStore } from '@/lib/store';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
 
 
 const vendorSchema = z.object({
@@ -92,11 +103,74 @@ type VendorFormValues = z.infer<typeof vendorSchema>;
 
 const PAGE_SIZE = 10;
 
+// LinkAccountDialog Component
+const LinkAccountDialog = ({ open, onOpenChange, vendor, onLink, accounts }: { open: boolean, onOpenChange: (open: boolean) => void, vendor: Vendor, onLink: (accountId: string) => void, accounts: ChartOfAccount[] }) => {
+    const [popoverOpen, setPopoverOpen] = useState(false);
+    const [selectedAccountId, setSelectedAccountId] = useState('');
+  
+    const handleLink = () => {
+      onLink(selectedAccountId);
+      onOpenChange(false);
+    };
+  
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Link to Chart of Accounts</DialogTitle>
+            <DialogDescription>
+              Select an account from your Chart of Accounts to link to "{vendor.vendorName}".
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" role="combobox" aria-expanded={popoverOpen} className="w-full justify-between">
+                  {selectedAccountId ? accounts.find(a => a.id === selectedAccountId)?.accountName : "Select account..."}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                <Command>
+                  <CommandInput placeholder="Search account..." />
+                  <CommandList>
+                    <CommandEmpty>No account found.</CommandEmpty>
+                    <CommandGroup>
+                      {accounts.map((account) => (
+                        <CommandItem
+                          key={account.id}
+                          value={account.accountName}
+                          onSelect={() => {
+                            setSelectedAccountId(account.id);
+                            setPopoverOpen(false);
+                          }}
+                        >
+                          <LinkIcon className={cn("mr-2 h-4 w-4", selectedAccountId === account.id ? "opacity-100" : "opacity-0")} />
+                          {account.accountNumber ? `${account.accountNumber} - ` : ''}{account.accountName}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={handleLink} disabled={!selectedAccountId}>Link Account</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
+
 export default function VendorsPage() {
   const params = useParams() as { companyId: string };
   const { user } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
+  const { chartOfAccounts } = useStore();
 
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -116,6 +190,8 @@ export default function VendorsPage() {
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isBatchDeleteConfirmOpen, setIsBatchDeleteConfirmOpen] = useState(false);
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [vendorToLink, setVendorToLink] = useState<Vendor | null>(null);
 
 
   const form = useForm<VendorFormValues>({
@@ -242,6 +318,27 @@ export default function VendorsPage() {
     setIsDeleteConfirmOpen(true);
   };
 
+  const handleLinkAccount = async (accountId: string) => {
+    if (!vendorToLink || !user || !firestore) return;
+  
+    const vendorRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors/${vendorToLink.id}`);
+    const accountRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts/${accountId}`);
+  
+    try {
+      const batch = writeBatch(firestore);
+      batch.update(vendorRef, { defaultExpenseAccountId: accountId });
+      batch.update(accountRef, { defaultVendorId: vendorToLink.id });
+      await batch.commit();
+  
+      toast({ title: 'Link Successful', description: `Vendor "${vendorToLink.vendorName}" linked to account.` });
+      fetchVendors('first'); // Refresh data
+    } catch (error) {
+      console.error("Error linking account:", error);
+      toast({ variant: 'destructive', title: 'Link Failed' });
+    }
+    setVendorToLink(null);
+  };
+
   const handleFormSubmit = async (values: VendorFormValues) => {
     if (!vendorsCollectionRef || !firestore || !user) return;
   
@@ -268,7 +365,6 @@ export default function VendorsPage() {
       vendorEmail: values.vendorEmail || '',
       defaultExpenseAccount: values.defaultExpenseAccount || '',
       defaultExpenseAccountId: accountId,
-      transactions: selectedVendor?.transactions || [],
     };
   
     try {
@@ -408,12 +504,13 @@ export default function VendorsPage() {
                   <TableHead className="cursor-pointer" onClick={() => handleSort('vendorName')}><div className="flex items-center">Name {getSortIcon('vendorName')}</div></TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('vendorEmail')}><div className="flex items-center">Contact Email {getSortIcon('vendorEmail')}</div></TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('defaultExpenseAccount')}><div className="flex items-center">Default Expense Account {getSortIcon('defaultExpenseAccount')}</div></TableHead>
+                  <TableHead>Link</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={5} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
                 ) : filteredVendors.length > 0 ? (
                   filteredVendors.map((vendor) => (
                     <TableRow key={vendor.id} data-state={selectedRows.includes(vendor.id) && "selected"}>
@@ -428,9 +525,15 @@ export default function VendorsPage() {
                       <TableCell>{vendor.vendorEmail || 'N/A'}</TableCell>
                       <TableCell>{vendor.defaultExpenseAccount || 'N/A'}</TableCell>
                       <TableCell>
+                        {vendor.defaultExpenseAccountId && (
+                          <LinkIcon className="h-4 w-4 text-accent" />
+                        )}
+                      </TableCell>
+                      <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Open menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => { setVendorToLink(vendor); setIsLinkDialogOpen(true); }}><LinkIcon className="mr-2 h-4 w-4" />Link Account</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => openEditModal(vendor)}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => openDeleteConfirm(vendor)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
                           </DropdownMenuContent>
@@ -439,7 +542,7 @@ export default function VendorsPage() {
                     </TableRow>
                   ))
                 ) : (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No vendors found. Import them or add a new one.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No vendors found. Import them or add a new one.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -450,6 +553,15 @@ export default function VendorsPage() {
           </div>
         </CardContent>
       </Card>
+      {vendorToLink && (
+        <LinkAccountDialog
+          open={isLinkDialogOpen}
+          onOpenChange={setIsLinkDialogOpen}
+          vendor={vendorToLink}
+          onLink={handleLinkAccount}
+          accounts={chartOfAccounts}
+        />
+      )}
 
       {/* Add/Edit Vendor Dialog */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>

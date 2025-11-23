@@ -68,8 +68,16 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { Input } from '@/components/ui/input';
-import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown, Search } from 'lucide-react';
+import { PlusCircle, Loader2, MoreHorizontal, Edit, Trash2, ArrowUpDown, Search, Link as LinkIcon, ChevronsUpDown } from 'lucide-react';
 import { useMemoFirebase } from '@/firebase/provider';
 import { useParams } from 'next/navigation';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -79,7 +87,11 @@ import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
-import { Customer } from '@/lib/types';
+import { Customer, ChartOfAccount } from '@/lib/types';
+import { useStore } from '@/lib/store';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
+
 
 const customerSchema = z.object({
   customerName: z.string().min(1, 'Customer name is required.'),
@@ -91,11 +103,74 @@ type CustomerFormValues = z.infer<typeof customerSchema>;
 
 const PAGE_SIZE = 10;
 
+// LinkAccountDialog Component
+const LinkAccountDialog = ({ open, onOpenChange, customer, onLink, accounts }: { open: boolean, onOpenChange: (open: boolean) => void, customer: Customer, onLink: (accountId: string) => void, accounts: ChartOfAccount[] }) => {
+    const [popoverOpen, setPopoverOpen] = useState(false);
+    const [selectedAccountId, setSelectedAccountId] = useState('');
+  
+    const handleLink = () => {
+      onLink(selectedAccountId);
+      onOpenChange(false);
+    };
+  
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Link to Chart of Accounts</DialogTitle>
+            <DialogDescription>
+              Select an account from your Chart of Accounts to link to "{customer.customerName}".
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" role="combobox" aria-expanded={popoverOpen} className="w-full justify-between">
+                  {selectedAccountId ? accounts.find(a => a.id === selectedAccountId)?.accountName : "Select account..."}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                <Command>
+                  <CommandInput placeholder="Search account..." />
+                  <CommandList>
+                    <CommandEmpty>No account found.</CommandEmpty>
+                    <CommandGroup>
+                      {accounts.map((account) => (
+                        <CommandItem
+                          key={account.id}
+                          value={account.accountName}
+                          onSelect={() => {
+                            setSelectedAccountId(account.id);
+                            setPopoverOpen(false);
+                          }}
+                        >
+                          <LinkIcon className={cn("mr-2 h-4 w-4", selectedAccountId === account.id ? "opacity-100" : "opacity-0")} />
+                          {account.accountNumber ? `${account.accountNumber} - ` : ''}{account.accountName}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={handleLink} disabled={!selectedAccountId}>Link Account</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
+
 export default function CustomersPage() {
   const params = useParams() as { companyId: string };
   const { user } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
+  const { chartOfAccounts } = useStore();
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -115,6 +190,8 @@ export default function CustomersPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isBatchDeleteConfirmOpen, setIsBatchDeleteConfirmOpen] = useState(false);
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [customerToLink, setCustomerToLink] = useState<Customer | null>(null);
 
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerSchema),
@@ -240,6 +317,27 @@ export default function CustomersPage() {
     setIsDeleteConfirmOpen(true);
   };
 
+  const handleLinkAccount = async (accountId: string) => {
+    if (!customerToLink || !user || !firestore) return;
+  
+    const customerRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/customers/${customerToLink.id}`);
+    const accountRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts/${accountId}`);
+  
+    try {
+      const batch = writeBatch(firestore);
+      batch.update(customerRef, { defaultRevenueAccountId: accountId });
+      batch.update(accountRef, { defaultCustomerId: customerToLink.id });
+      await batch.commit();
+  
+      toast({ title: 'Link Successful', description: `Customer "${customerToLink.customerName}" linked to account.` });
+      fetchCustomers('first'); // Refresh data
+    } catch (error) {
+      console.error("Error linking account:", error);
+      toast({ variant: 'destructive', title: 'Link Failed' });
+    }
+    setCustomerToLink(null);
+  };
+
   const handleFormSubmit = async (values: CustomerFormValues) => {
     if (!customersCollectionRef || !firestore || !user) return;
   
@@ -266,7 +364,6 @@ export default function CustomersPage() {
       customerEmail: values.customerEmail || '',
       defaultRevenueAccount: values.defaultRevenueAccount || '',
       defaultRevenueAccountId: accountId,
-      transactions: selectedCustomer?.transactions || [],
     };
   
     try {
@@ -406,12 +503,13 @@ export default function CustomersPage() {
                   <TableHead className="cursor-pointer" onClick={() => handleSort('customerName')}><div className="flex items-center">Name {getSortIcon('customerName')}</div></TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('customerEmail')}><div className="flex items-center">Contact Email {getSortIcon('customerEmail')}</div></TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('defaultRevenueAccount')}><div className="flex items-center">Default Revenue Account {getSortIcon('defaultRevenueAccount')}</div></TableHead>
+                  <TableHead>Link</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={5} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
                 ) : filteredCustomers.length > 0 ? (
                   filteredCustomers.map((customer) => (
                     <TableRow key={customer.id} data-state={selectedRows.includes(customer.id) && "selected"}>
@@ -425,10 +523,16 @@ export default function CustomersPage() {
                       <TableCell className="font-medium">{customer.customerName}</TableCell>
                       <TableCell>{customer.customerEmail || 'N/A'}</TableCell>
                       <TableCell>{customer.defaultRevenueAccount || 'N/A'}</TableCell>
+                       <TableCell>
+                        {customer.defaultRevenueAccountId && (
+                          <LinkIcon className="h-4 w-4 text-accent" />
+                        )}
+                      </TableCell>
                       <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Open menu</span><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => { setCustomerToLink(customer); setIsLinkDialogOpen(true); }}><LinkIcon className="mr-2 h-4 w-4" />Link Account</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => openEditModal(customer)}><Edit className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => openDeleteConfirm(customer)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>
                           </DropdownMenuContent>
@@ -437,7 +541,7 @@ export default function CustomersPage() {
                     </TableRow>
                   ))
                 ) : (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No customers found. Import them or add a new one.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No customers found. Import them or add a new one.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -448,6 +552,16 @@ export default function CustomersPage() {
           </div>
         </CardContent>
       </Card>
+
+      {customerToLink && (
+        <LinkAccountDialog
+          open={isLinkDialogOpen}
+          onOpenChange={setIsLinkDialogOpen}
+          customer={customerToLink}
+          onLink={handleLinkAccount}
+          accounts={chartOfAccounts}
+        />
+      )}
 
       {/* Add/Edit Customer Dialog */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>

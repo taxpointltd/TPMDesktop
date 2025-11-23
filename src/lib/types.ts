@@ -16,33 +16,32 @@ export interface Company {
 export interface Vendor {
   id: string;
   companyId: string;
-  'Name': string; // From import
-  'Contact Email'?: string; // From import
-  'Default Expense Account'?: string; // From import
-  defaultExpenseAccountId?: string; // For linking
+  vendorName: string;
+  vendorEmail: string;
+  defaultExpenseAccount: string;
+  defaultExpenseAccountId: string;
 }
 
 export interface Customer {
   id:string;
   companyId: string;
-  'name': string; // from import
-  'contactEmail'?: string; // from import
-  'defaultRevenueAccount'?: string; // from import
-  defaultRevenueAccountId?: string; // for linking
+  customerName: string;
+  customerEmail: string;
+  defaultRevenueAccount: string;
+  defaultRevenueAccountId: string;
 }
 
 export interface ChartOfAccount {
   id: string;
   companyId: string;
-  'accountName': string; // from import
-  'accountNumber'?: string; // from import
-  'accountType'?: string; // from import
-  'accountDescription'?: string; // from import
-  subAccountName?: string;
-  subAccountNumber?: string;
-  description?: string;
-  defaultVendorId?: string;
-  defaultCustomerId?: string;
+  accountName: string;
+  accountNumber: string;
+  accountType: string;
+  description: string;
+  subAccountName: string;
+  subAccountNumber: string;
+  defaultVendorId: string;
+  defaultCustomerId: string;
 }
 
 export interface Transaction {

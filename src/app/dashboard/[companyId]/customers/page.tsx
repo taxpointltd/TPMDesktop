@@ -183,7 +183,6 @@ export default function CustomersPage() {
     if (customersCollectionRef) {
       fetchCustomers('first');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customersCollectionRef, sortConfig]);
 
   const handleNextPage = () => {
@@ -236,6 +235,7 @@ export default function CustomersPage() {
       'name': values.name,
       'contactEmail': values.contactEmail || null,
       'defaultRevenueAccount': values.defaultRevenueAccount || null,
+      'companyId': params.companyId,
     };
 
     try {

@@ -46,7 +46,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -110,7 +109,7 @@ export default function VendorsPage() {
   const [sortConfig, setSortConfig] = useState<{
     key: string;
     direction: 'asc' | 'desc';
-  }>({ key: 'Name', direction: 'asc' });
+  }>({ key: 'name', direction: 'asc' });
 
   // State for modals
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -137,42 +136,50 @@ export default function VendorsPage() {
 
     let q;
     const { key, direction: sortDirection } = sortConfig;
+    const mappedKey = key === 'name' ? 'Name' : key === 'contactEmail' ? 'Contact Email' : 'Default Expense Account';
+
 
     if (direction === 'next' && lastVisible) {
-      q = query(vendorsCollectionRef, orderBy(key, sortDirection), startAfter(lastVisible), limit(PAGE_SIZE));
+      q = query(vendorsCollectionRef, orderBy(mappedKey, sortDirection), startAfter(lastVisible), limit(PAGE_SIZE));
     } else if (direction === 'prev' && firstVisible) {
-      q = query(vendorsCollectionRef, orderBy(key, sortDirection), endBefore(firstVisible), limitToLast(PAGE_SIZE));
+      q = query(vendorsCollectionRef, orderBy(mappedKey, sortDirection), endBefore(firstVisible), limitToLast(PAGE_SIZE));
     } else {
-      q = query(vendorsCollectionRef, orderBy(key, sortDirection), limit(PAGE_SIZE));
+      q = query(vendorsCollectionRef, orderBy(mappedKey, sortDirection), limit(PAGE_SIZE));
       setPage(1);
     }
 
     try {
       const documentSnapshots = await getDocs(q);
-      if (!documentSnapshots.empty) {
-        const newVendors = documentSnapshots.docs.map((doc: DocumentData) => ({
-          id: doc.id,
-          name: doc.data()['Name'] || 'N/A',
-          contactEmail: doc.data()['Contact Email'],
-          defaultExpenseAccount: doc.data()['Default Expense Account'],
-        }));
+      const newVendors = documentSnapshots.docs.map((doc: DocumentData) => ({
+        id: doc.id,
+        name: doc.data()['Name'] || 'N/A',
+        contactEmail: doc.data()['Contact Email'],
+        defaultExpenseAccount: doc.data()['Default Expense Account'],
+      }));
+
+      if (documentSnapshots.docs.length > 0) {
         setVendors(newVendors);
         setLastVisible(documentSnapshots.docs[documentSnapshots.docs.length - 1]);
         setFirstVisible(documentSnapshots.docs[0]);
         setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
       } else {
-        setVendors([]);
-        setLastVisible(null);
-        setFirstVisible(null);
+        if (direction === 'first') {
+          setVendors([]);
+        }
         setIsLastPage(true);
       }
     } catch (error) {
       console.error('VendorsPage: Error fetching vendors:', error);
       setVendors([]);
+      toast({
+        variant: 'destructive',
+        title: 'Error fetching vendors',
+        description: 'Could not load vendor data. Please check your connection and permissions.',
+      });
     } finally {
       setIsLoading(false);
     }
-  }, [vendorsCollectionRef, lastVisible, firstVisible, sortConfig]);
+  }, [vendorsCollectionRef, lastVisible, firstVisible, sortConfig, toast]);
 
   useEffect(() => {
     if (vendorsCollectionRef) {
@@ -230,30 +237,39 @@ export default function VendorsPage() {
       'Name': values.name,
       'Contact Email': values.contactEmail || null,
       'Default Expense Account': values.defaultExpenseAccount || null,
+      'companyId': params.companyId,
     };
 
     try {
       if (selectedVendor) {
         // Update existing vendor
         const docRef = doc(vendorsCollectionRef, selectedVendor.id);
-        await setDoc(docRef, dataToSave, { merge: true });
+        setDoc(docRef, dataToSave, { merge: true }).catch(async (error) => {
+            const permissionError = new FirestorePermissionError({
+                path: docRef.path,
+                operation: 'update',
+                requestResourceData: dataToSave,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+        });
         toast({ title: 'Vendor updated', description: `"${values.name}" has been updated.` });
       } else {
         // Create new vendor
-        await addDoc(vendorsCollectionRef, dataToSave);
+        addDoc(vendorsCollectionRef, dataToSave).catch(async (error) => {
+            const permissionError = new FirestorePermissionError({
+                path: vendorsCollectionRef.path,
+                operation: 'create',
+                requestResourceData: dataToSave,
+            });
+            errorEmitter.emit('permission-error', permissionError);
+        });
         toast({ title: 'Vendor created', description: `"${values.name}" has been added.` });
       }
       setIsFormOpen(false);
       fetchVendors('first'); // Refresh data
     } catch (error) {
         console.error('Error saving vendor:', error);
-        const permissionError = new FirestorePermissionError({
-            path: selectedVendor ? doc(vendorsCollectionRef, selectedVendor.id).path : vendorsCollectionRef.path,
-            operation: selectedVendor ? 'update' : 'create',
-            requestResourceData: dataToSave,
-          });
-        errorEmitter.emit('permission-error', permissionError);
-        toast({ variant: 'destructive', title: 'Save failed', description: 'Could not save the vendor. Check permissions.' });
+        toast({ variant: 'destructive', title: 'Save failed', description: 'An unexpected error occurred.' });
     }
   };
 
@@ -302,9 +318,9 @@ export default function VendorsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('Name')}><div className="flex items-center">Name {getSortIcon('Name')}</div></TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('Contact Email')}><div className="flex items-center">Contact Email {getSortIcon('Contact Email')}</div></TableHead>
-                  <TableHead className="cursor-pointer" onClick={() => handleSort('Default Expense Account')}><div className="flex items-center">Default Expense Account {getSortIcon('Default Expense Account')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('name')}><div className="flex items-center">Name {getSortIcon('name')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('contactEmail')}><div className="flex items-center">Contact Email {getSortIcon('contactEmail')}</div></TableHead>
+                  <TableHead className="cursor-pointer" onClick={() => handleSort('defaultExpenseAccount')}><div className="flex items-center">Default Expense Account {getSortIcon('defaultExpenseAccount')}</div></TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>

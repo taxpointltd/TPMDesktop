@@ -210,7 +210,6 @@ export default function ChartOfAccountsPage() {
     if (coaCollectionRef) {
         fetchAccounts('first');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coaCollectionRef, sortConfig]);
 
   const handleNextPage = () => {
@@ -265,6 +264,7 @@ export default function ChartOfAccountsPage() {
       accountNumber: values.accountNumber || null,
       accountType: values.accountType || null,
       accountDescription: values.accountDescription || null,
+      companyId: params.companyId,
     };
 
     try {

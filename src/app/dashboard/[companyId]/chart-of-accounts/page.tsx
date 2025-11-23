@@ -145,7 +145,7 @@ export default function ChartOfAccountsPage() {
     if (coaCollectionRef) {
         fetchAccounts('first');
     }
-  }, [sortConfig, coaCollectionRef]);
+  }, [sortConfig, coaCollectionRef, fetchAccounts]);
 
   const handleNextPage = () => {
     if (!isLastPage) {

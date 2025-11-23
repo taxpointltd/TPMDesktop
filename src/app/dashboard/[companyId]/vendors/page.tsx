@@ -78,11 +78,12 @@ export default function VendorsPage() {
       } else {
         const newVendors = documentSnapshots.docs.map((doc: DocumentData) => {
           const data = doc.data();
+          console.log('VendorsPage: Raw data from Firestore doc:', data);
           return {
             id: doc.id,
-            name: data.name || 'N/A',
-            contactEmail: data.contactEmail,
-            defaultExpenseAccount: data.defaultExpenseAccount,
+            name: data['Name'] || 'N/A', // Corrected mapping
+            contactEmail: data['Contact Email'], // Corrected mapping
+            defaultExpenseAccount: data['Default Expense Account'], // Corrected mapping
           } as Vendor;
         });
         console.log('VendorsPage: Mapped vendors data:', newVendors);

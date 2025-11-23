@@ -69,16 +69,22 @@ export default function CustomersPage() {
 
   const customersCollectionRef = useMemoFirebase(() => {
     if (!user || !firestore) return null;
+    const path = `/users/${user.uid}/companies/${params.companyId}/customers`;
+    console.log('[Customers Debug] Collection Path:', path);
     return collection(
       firestore,
-      `/users/${user.uid}/companies/${params.companyId}/customers`
+      path
     );
   }, [firestore, user, params.companyId]);
 
   const fetchCustomers = useCallback(
     async (direction: 'next' | 'prev' | 'first' = 'first') => {
-      if (!customersCollectionRef) return;
+      if (!customersCollectionRef) {
+        console.log('[Customers Debug] fetchCustomers aborted: collection ref not ready.');
+        return;
+      }
       setIsLoading(true);
+      console.log(`[Customers Debug] Fetching customers, direction: ${direction}, page: ${page}`);
 
       let q;
       const { key, direction: sortDirection } = sortConfig;
@@ -105,13 +111,17 @@ export default function CustomersPage() {
         );
         setPage(1);
       }
+      console.log('[Customers Debug] Query created:', q);
 
       try {
         const documentSnapshots = await getDocs(q);
+        console.log(`[Customers Debug] Firestore returned ${documentSnapshots.docs.length} documents.`);
+        
         const newCustomers = documentSnapshots.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         })) as Customer[];
+        console.log('[Customers Debug] Mapped data:', newCustomers);
 
         if (!documentSnapshots.empty) {
           setLastVisible(
@@ -121,6 +131,7 @@ export default function CustomersPage() {
           setCustomers(newCustomers);
           setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
         } else if (direction === 'first') {
+          console.log('[Customers Debug] No documents found on first fetch.');
           setCustomers([]);
           setLastVisible(null);
           setFirstVisible(null);
@@ -131,20 +142,23 @@ export default function CustomersPage() {
           }
         }
       } catch (error) {
-        console.error('Error fetching customers:', error);
+        console.error('[Customers Debug] Error fetching customers:', error);
         setCustomers([]);
       } finally {
+        console.log('[Customers Debug] Fetch finished.');
         setIsLoading(false);
       }
     },
-    [customersCollectionRef, lastVisible, firstVisible, sortConfig]
+    [customersCollectionRef, lastVisible, firstVisible, sortConfig, page]
   );
 
   useEffect(() => {
+    console.log('[Customers Debug] useEffect triggered. Ref available:', !!customersCollectionRef);
     if (customersCollectionRef) {
       fetchCustomers('first');
     }
-  }, [sortConfig, customersCollectionRef, fetchCustomers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortConfig, customersCollectionRef]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -161,6 +175,7 @@ export default function CustomersPage() {
   };
 
   const handleSort = (key: keyof Customer) => {
+    console.log(`[Customers Debug] Sorting by ${key}`);
     setSortConfig((prev) => {
       const newDirection =
         prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc';
@@ -182,6 +197,8 @@ export default function CustomersPage() {
       <ArrowUpDown className="ml-2 h-4 w-4" />
     );
   };
+  
+  console.log('[Customers Debug] Rendering component. Current customers state:', customers);
 
   return (
     <div className="space-y-6">

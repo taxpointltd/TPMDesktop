@@ -70,16 +70,22 @@ export default function ChartOfAccountsPage() {
 
   const coaCollectionRef = useMemoFirebase(() => {
     if (!user || !firestore) return null;
+    const path = `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`;
+    console.log('[COA Debug] Collection Path:', path);
     return collection(
       firestore,
-      `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`
+      path
     );
   }, [firestore, user, params.companyId]);
 
   const fetchAccounts = useCallback(
     async (direction: 'next' | 'prev' | 'first' = 'first') => {
-      if (!coaCollectionRef) return;
+      if (!coaCollectionRef) {
+        console.log('[COA Debug] fetchAccounts aborted: collection ref not ready.');
+        return;
+      }
       setIsLoading(true);
+      console.log(`[COA Debug] Fetching accounts, direction: ${direction}, page: ${page}`);
 
       let q;
       const { key, direction: sortDirection } = sortConfig;
@@ -106,13 +112,17 @@ export default function ChartOfAccountsPage() {
         );
         setPage(1);
       }
+      console.log('[COA Debug] Query created:', q);
 
       try {
         const documentSnapshots = await getDocs(q);
+        console.log(`[COA Debug] Firestore returned ${documentSnapshots.docs.length} documents.`);
+
         const newAccounts = documentSnapshots.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         })) as ChartOfAccount[];
+        console.log('[COA Debug] Mapped data:', newAccounts);
 
         if (!documentSnapshots.empty) {
           setLastVisible(
@@ -122,6 +132,7 @@ export default function ChartOfAccountsPage() {
           setAccounts(newAccounts);
           setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
         } else if (direction === 'first') {
+          console.log('[COA Debug] No documents found on first fetch.');
           setAccounts([]);
           setLastVisible(null);
           setFirstVisible(null);
@@ -135,17 +146,20 @@ export default function ChartOfAccountsPage() {
         console.error('Error fetching accounts:', error);
         setAccounts([]);
       } finally {
+        console.log('[COA Debug] Fetch finished.');
         setIsLoading(false);
       }
     },
-    [coaCollectionRef, lastVisible, firstVisible, sortConfig]
+    [coaCollectionRef, lastVisible, firstVisible, sortConfig, page]
   );
 
   useEffect(() => {
+    console.log('[COA Debug] useEffect triggered. Ref available:', !!coaCollectionRef);
     if (coaCollectionRef) {
         fetchAccounts('first');
     }
-  }, [sortConfig, coaCollectionRef, fetchAccounts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortConfig, coaCollectionRef]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -162,6 +176,7 @@ export default function ChartOfAccountsPage() {
   };
 
   const handleSort = (key: keyof ChartOfAccount) => {
+    console.log(`[COA Debug] Sorting by ${key}`);
     setSortConfig((prev) => {
       const newDirection =
         prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc';
@@ -184,6 +199,8 @@ export default function ChartOfAccountsPage() {
       <ArrowUpDown className="ml-2 h-4 w-4" /> // Replace with ArrowDown icon
     );
   };
+  
+  console.log('[COA Debug] Rendering component. Current accounts state:', accounts);
 
   return (
     <div className="space-y-6">

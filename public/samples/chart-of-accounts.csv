@@ -1,0 +1,5 @@
+Account Name,Account Number,Account Type,Description
+"Cash","10100","Asset","Cash in bank accounts."
+"Accounts Receivable","12000","Asset","Money owed by customers."
+"Office Supplies","65600","Expense","Cost of office supplies."
+"Sales Revenue","40000","Revenue","Income from sales of goods."

@@ -17,8 +17,10 @@ import {
   setDoc,
   addDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Card,
   CardContent,
@@ -111,6 +113,9 @@ export default function VendorsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [isBatchDeleteConfirmOpen, setIsBatchDeleteConfirmOpen] = useState(false);
+
 
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(vendorSchema),
@@ -171,6 +176,7 @@ export default function VendorsPage() {
     } finally {
       setIsLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vendorsCollectionRef, lastVisible, firstVisible, sortConfig, toast]);
 
   useEffect(() => {
@@ -200,6 +206,7 @@ export default function VendorsPage() {
     setFirstVisible(null);
     setPage(1);
     setIsLastPage(false);
+    setSelectedRows([]);
   };
 
   const openAddModal = () => {
@@ -239,7 +246,7 @@ export default function VendorsPage() {
           title: 'Account Not Found',
           description: `The account "${values.defaultExpenseAccount}" does not exist in your Chart of Accounts. Please create it first.`,
         });
-        return; // Stop execution if account doesn't exist
+        return;
       }
     }
   
@@ -263,6 +270,7 @@ export default function VendorsPage() {
       }
       setIsFormOpen(false);
       fetchVendors('first'); 
+      setSelectedRows([]);
     } catch (error) {
         console.error('Error saving vendor:', error);
         const permissionError = new FirestorePermissionError({
@@ -283,7 +291,8 @@ export default function VendorsPage() {
       toast({ title: 'Vendor deleted', description: `"${selectedVendor.vendorName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
       setSelectedVendor(null);
-      fetchVendors('first'); 
+      fetchVendors('first');
+      setSelectedRows([]);
     } catch (error) {
         console.error('Error deleting vendor:', error);
         const permissionError = new FirestorePermissionError({
@@ -292,6 +301,41 @@ export default function VendorsPage() {
           });
         errorEmitter.emit('permission-error', permissionError);
         toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete the vendor. Check permissions.' });
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (!firestore || !vendorsCollectionRef || selectedRows.length === 0) return;
+    const batch = writeBatch(firestore);
+    selectedRows.forEach(vendorId => {
+      const docRef = doc(vendorsCollectionRef, vendorId);
+      batch.delete(docRef);
+    });
+    try {
+      await batch.commit();
+      toast({ title: `${selectedRows.length} vendors deleted.` });
+      setIsBatchDeleteConfirmOpen(false);
+      setSelectedRows([]);
+      fetchVendors('first');
+    } catch (error) {
+      console.error('Error batch deleting vendors:', error);
+      toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete the selected vendors. Check permissions.' });
+    }
+  };
+
+  const handleSelectAll = (checked: boolean | string) => {
+    if (checked) {
+      setSelectedRows(vendors.map(v => v.vendorId));
+    } else {
+      setSelectedRows([]);
+    }
+  };
+  
+  const handleRowSelect = (vendorId: string, checked: boolean | string) => {
+    if (checked) {
+      setSelectedRows(prev => [...prev, vendorId]);
+    } else {
+      setSelectedRows(prev => prev.filter(id => id !== vendorId));
     }
   };
 
@@ -307,7 +351,15 @@ export default function VendorsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Vendors</h1>
           <p className="text-muted-foreground">Manage vendors for company <span className="font-mono bg-muted px-2 py-1 rounded">{params.companyId}</span>.</p>
         </div>
-        <Button onClick={openAddModal}><PlusCircle className="mr-2 h-4 w-4" />Add Vendor</Button>
+        <div className="flex items-center gap-2">
+            {selectedRows.length > 0 && (
+                <Button variant="destructive" onClick={() => setIsBatchDeleteConfirmOpen(true)}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete ({selectedRows.length})
+                </Button>
+            )}
+            <Button onClick={openAddModal}><PlusCircle className="mr-2 h-4 w-4" />Add Vendor</Button>
+        </div>
       </div>
 
       <Card>
@@ -320,6 +372,13 @@ export default function VendorsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead padding="checkbox" className="w-[50px] px-4">
+                    <Checkbox
+                      checked={selectedRows.length > 0 && selectedRows.length === vendors.length}
+                      onCheckedChange={handleSelectAll}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('vendorName')}><div className="flex items-center">Name {getSortIcon('vendorName')}</div></TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('vendorEmail')}><div className="flex items-center">Contact Email {getSortIcon('vendorEmail')}</div></TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('defaultExpenseAccount')}><div className="flex items-center">Default Expense Account {getSortIcon('defaultExpenseAccount')}</div></TableHead>
@@ -328,10 +387,17 @@ export default function VendorsPage() {
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={4} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
                 ) : vendors.length > 0 ? (
                   vendors.map((vendor) => (
-                    <TableRow key={vendor.vendorId}>
+                    <TableRow key={vendor.vendorId} data-state={selectedRows.includes(vendor.vendorId) && "selected"}>
+                      <TableCell padding="checkbox" className="px-4">
+                        <Checkbox
+                            checked={selectedRows.includes(vendor.vendorId)}
+                            onCheckedChange={(checked) => handleRowSelect(vendor.vendorId, checked)}
+                            aria-label="Select row"
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">{vendor.vendorName}</TableCell>
                       <TableCell>{vendor.vendorEmail || 'N/A'}</TableCell>
                       <TableCell>{vendor.defaultExpenseAccount || 'N/A'}</TableCell>
@@ -347,7 +413,7 @@ export default function VendorsPage() {
                     </TableRow>
                   ))
                 ) : (
-                  <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">No vendors found. Import them or add a new one.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No vendors found. Import them or add a new one.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -413,7 +479,7 @@ export default function VendorsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Single Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -423,6 +489,20 @@ export default function VendorsPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteVendor} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Batch Delete Confirmation Dialog */}
+      <AlertDialog open={isBatchDeleteConfirmOpen} onOpenChange={setIsBatchDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone. This will permanently delete the {selectedRows.length} selected vendors.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBatchDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

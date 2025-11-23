@@ -16,8 +16,10 @@ import {
   deleteDoc,
   setDoc,
   addDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Card,
   CardContent,
@@ -109,10 +111,12 @@ export default function ChartOfAccountsPage() {
     direction: 'asc' | 'desc';
   }>({ key: 'accountName', direction: 'asc' });
 
-  // State for modals
+  // State for modals and selection
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<ChartOfAccount | null>(null);
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [isBatchDeleteConfirmOpen, setIsBatchDeleteConfirmOpen] = useState(false);
 
   const form = useForm<AccountFormValues>({
     resolver: zodResolver(accountSchema),
@@ -197,6 +201,7 @@ export default function ChartOfAccountsPage() {
       } finally {
         setIsLoading(false);
       }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
     [coaCollectionRef, lastVisible, firstVisible, sortConfig, toast]
   );
@@ -229,6 +234,7 @@ export default function ChartOfAccountsPage() {
     setFirstVisible(null);
     setPage(1);
     setIsLastPage(false);
+    setSelectedRows([]);
   };
   
   const openAddModal = () => {
@@ -282,6 +288,7 @@ export default function ChartOfAccountsPage() {
       }
       setIsFormOpen(false);
       fetchAccounts('first');
+      setSelectedRows([]);
     } catch (error) {
         console.error('Error saving account:', error);
         const permissionError = new FirestorePermissionError({
@@ -303,6 +310,7 @@ export default function ChartOfAccountsPage() {
       setIsDeleteConfirmOpen(false);
       setSelectedAccount(null);
       fetchAccounts('first');
+      setSelectedRows([]);
     } catch (error) {
         console.error('Error deleting account:', error);
         const permissionError = new FirestorePermissionError({
@@ -311,6 +319,41 @@ export default function ChartOfAccountsPage() {
           });
         errorEmitter.emit('permission-error', permissionError);
         toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete the account. Check permissions.' });
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (!firestore || !coaCollectionRef || selectedRows.length === 0) return;
+    const batch = writeBatch(firestore);
+    selectedRows.forEach(accountId => {
+      const docRef = doc(coaCollectionRef, accountId);
+      batch.delete(docRef);
+    });
+    try {
+      await batch.commit();
+      toast({ title: `${selectedRows.length} accounts deleted.` });
+      setIsBatchDeleteConfirmOpen(false);
+      setSelectedRows([]);
+      fetchAccounts('first');
+    } catch (error) {
+      console.error('Error batch deleting accounts:', error);
+      toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete the selected accounts. Check permissions.' });
+    }
+  };
+
+  const handleSelectAll = (checked: boolean | string) => {
+    if (checked) {
+      setSelectedRows(accounts.map(a => a.accountId));
+    } else {
+      setSelectedRows([]);
+    }
+  };
+
+  const handleRowSelect = (accountId: string, checked: boolean | string) => {
+    if (checked) {
+      setSelectedRows(prev => [...prev, accountId]);
+    } else {
+      setSelectedRows(prev => prev.filter(id => id !== accountId));
     }
   };
 
@@ -336,10 +379,18 @@ export default function ChartOfAccountsPage() {
             .
           </p>
         </div>
-        <Button onClick={openAddModal}>
-          <PlusCircle className="mr-2 h-4 w-4" />
-          Add Account
-        </Button>
+        <div className="flex items-center gap-2">
+            {selectedRows.length > 0 && (
+                <Button variant="destructive" onClick={() => setIsBatchDeleteConfirmOpen(true)}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete ({selectedRows.length})
+                </Button>
+            )}
+            <Button onClick={openAddModal}>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add Account
+            </Button>
+        </div>
       </div>
 
       <Card>
@@ -354,6 +405,13 @@ export default function ChartOfAccountsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead padding="checkbox" className="w-[50px] px-4">
+                    <Checkbox
+                      checked={selectedRows.length > 0 && selectedRows.length === accounts.length}
+                      onCheckedChange={handleSelectAll}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('accountName')}>
                     <div className="flex items-center">Account Name {getSortIcon('accountName')}</div>
                   </TableHead>
@@ -370,13 +428,20 @@ export default function ChartOfAccountsPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center">
+                    <TableCell colSpan={6} className="text-center">
                       <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                     </TableCell>
                   </TableRow>
                 ) : accounts && accounts.length > 0 ? (
                   accounts.map((account) => (
-                    <TableRow key={account.accountId}>
+                    <TableRow key={account.accountId} data-state={selectedRows.includes(account.accountId) && "selected"}>
+                      <TableCell padding="checkbox" className="px-4">
+                        <Checkbox
+                          checked={selectedRows.includes(account.accountId)}
+                          onCheckedChange={(checked) => handleRowSelect(account.accountId, checked)}
+                          aria-label="Select row"
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">
                         {account.accountName}
                       </TableCell>
@@ -398,7 +463,7 @@ export default function ChartOfAccountsPage() {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
                       No accounts found. Import them or add a new one.
                     </TableCell>
                   </TableRow>
@@ -514,7 +579,7 @@ export default function ChartOfAccountsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Single Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -524,6 +589,20 @@ export default function ChartOfAccountsPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteAccount} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Batch Delete Confirmation Dialog */}
+      <AlertDialog open={isBatchDeleteConfirmOpen} onOpenChange={setIsBatchDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone. This will permanently delete the {selectedRows.length} selected accounts.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBatchDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

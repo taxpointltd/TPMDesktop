@@ -17,8 +17,10 @@ import {
   setDoc,
   addDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Card,
   CardContent,
@@ -106,10 +108,12 @@ export default function CustomersPage() {
     direction: 'asc' | 'desc';
   }>({ key: 'customerName', direction: 'asc' });
 
-  // State for modals
+  // State for modals and selection
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [isBatchDeleteConfirmOpen, setIsBatchDeleteConfirmOpen] = useState(false);
 
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerSchema),
@@ -170,6 +174,7 @@ export default function CustomersPage() {
     } finally {
       setIsLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customersCollectionRef, lastVisible, firstVisible, sortConfig, toast]);
 
   useEffect(() => {
@@ -199,6 +204,7 @@ export default function CustomersPage() {
     setFirstVisible(null);
     setPage(1);
     setIsLastPage(false);
+    setSelectedRows([]);
   };
   
   const openAddModal = () => {
@@ -262,6 +268,7 @@ export default function CustomersPage() {
       }
       setIsFormOpen(false);
       fetchCustomers('first');
+      setSelectedRows([]);
     } catch (error) {
         console.error('Error saving customer:', error);
         const permissionError = new FirestorePermissionError({
@@ -283,6 +290,7 @@ export default function CustomersPage() {
       setIsDeleteConfirmOpen(false);
       setSelectedCustomer(null);
       fetchCustomers('first');
+      setSelectedRows([]);
     } catch (error) {
         console.error('Error deleting customer:', error);
         const permissionError = new FirestorePermissionError({
@@ -291,6 +299,41 @@ export default function CustomersPage() {
           });
         errorEmitter.emit('permission-error', permissionError);
         toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete the customer. Check permissions.' });
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (!firestore || !customersCollectionRef || selectedRows.length === 0) return;
+    const batch = writeBatch(firestore);
+    selectedRows.forEach(customerId => {
+      const docRef = doc(customersCollectionRef, customerId);
+      batch.delete(docRef);
+    });
+    try {
+      await batch.commit();
+      toast({ title: `${selectedRows.length} customers deleted.` });
+      setIsBatchDeleteConfirmOpen(false);
+      setSelectedRows([]);
+      fetchCustomers('first');
+    } catch (error) {
+      console.error('Error batch deleting customers:', error);
+      toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete the selected customers. Check permissions.' });
+    }
+  };
+  
+  const handleSelectAll = (checked: boolean | string) => {
+    if (checked) {
+      setSelectedRows(customers.map(c => c.customerId));
+    } else {
+      setSelectedRows([]);
+    }
+  };
+  
+  const handleRowSelect = (customerId: string, checked: boolean | string) => {
+    if (checked) {
+      setSelectedRows(prev => [...prev, customerId]);
+    } else {
+      setSelectedRows(prev => prev.filter(id => id !== customerId));
     }
   };
 
@@ -306,7 +349,15 @@ export default function CustomersPage() {
           <h1 className="text-3xl font-bold tracking-tight">Customers</h1>
           <p className="text-muted-foreground">Manage customers for company <span className="font-mono bg-muted px-2 py-1 rounded">{params.companyId}</span>.</p>
         </div>
-        <Button onClick={openAddModal}><PlusCircle className="mr-2 h-4 w-4" />Add Customer</Button>
+        <div className="flex items-center gap-2">
+            {selectedRows.length > 0 && (
+                <Button variant="destructive" onClick={() => setIsBatchDeleteConfirmOpen(true)}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete ({selectedRows.length})
+                </Button>
+            )}
+            <Button onClick={openAddModal}><PlusCircle className="mr-2 h-4 w-4" />Add Customer</Button>
+        </div>
       </div>
 
       <Card>
@@ -319,6 +370,13 @@ export default function CustomersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead padding="checkbox" className="w-[50px] px-4">
+                    <Checkbox
+                      checked={selectedRows.length > 0 && selectedRows.length === customers.length}
+                      onCheckedChange={handleSelectAll}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('customerName')}><div className="flex items-center">Name {getSortIcon('customerName')}</div></TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('customerEmail')}><div className="flex items-center">Contact Email {getSortIcon('customerEmail')}</div></TableHead>
                   <TableHead className="cursor-pointer" onClick={() => handleSort('defaultRevenueAccount')}><div className="flex items-center">Default Revenue Account {getSortIcon('defaultRevenueAccount')}</div></TableHead>
@@ -327,10 +385,17 @@ export default function CustomersPage() {
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={4} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
                 ) : customers.length > 0 ? (
                   customers.map((customer) => (
-                    <TableRow key={customer.customerId}>
+                    <TableRow key={customer.customerId} data-state={selectedRows.includes(customer.customerId) && "selected"}>
+                      <TableCell padding="checkbox" className="px-4">
+                        <Checkbox
+                            checked={selectedRows.includes(customer.customerId)}
+                            onCheckedChange={(checked) => handleRowSelect(customer.customerId, checked)}
+                            aria-label="Select row"
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">{customer.customerName}</TableCell>
                       <TableCell>{customer.customerEmail || 'N/A'}</TableCell>
                       <TableCell>{customer.defaultRevenueAccount || 'N/A'}</TableCell>
@@ -346,7 +411,7 @@ export default function CustomersPage() {
                     </TableRow>
                   ))
                 ) : (
-                  <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">No customers found. Import them or add a new one.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No customers found. Import them or add a new one.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -412,7 +477,7 @@ export default function CustomersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Single Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -422,6 +487,20 @@ export default function CustomersPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteCustomer} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Batch Delete Confirmation Dialog */}
+      <AlertDialog open={isBatchDeleteConfirmOpen} onOpenChange={setIsBatchDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone. This will permanently delete the {selectedRows.length} selected customers.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBatchDelete} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

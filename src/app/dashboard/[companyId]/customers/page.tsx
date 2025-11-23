@@ -91,6 +91,8 @@ const customerSchema = z.object({
 
 type CustomerFormValues = z.infer<typeof customerSchema>;
 
+const ITEMS_PER_PAGE = 10;
+
 // LinkAccountDialog Component
 const LinkAccountDialog = ({ open, onOpenChange, customer, onLink, accounts }: { open: boolean, onOpenChange: (open: boolean) => void, customer: Customer, onLink: (accountId: string) => void, accounts: ChartOfAccount[] }) => {
     const [popoverOpen, setPopoverOpen] = useState(false);
@@ -158,7 +160,7 @@ export default function CustomersPage() {
   const { user } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
-  const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts, updateCustomer } = useStore();
+  const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts, updateCustomer, removeCustomer, removeCustomers } = useStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [sortConfig, setSortConfig] = useState<{
@@ -166,6 +168,7 @@ export default function CustomersPage() {
     direction: 'asc' | 'desc';
   }>({ key: 'customerName', direction: 'asc' });
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   // State for modals and selection
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -245,6 +248,13 @@ export default function CustomersPage() {
 
     return filtered;
   }, [customers, searchTerm, sortConfig]);
+
+  const paginatedCustomers = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return sortedAndFilteredCustomers.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [sortedAndFilteredCustomers, currentPage]);
+
+  const totalPages = Math.ceil(sortedAndFilteredCustomers.length / ITEMS_PER_PAGE);
 
   const handleSort = (key: keyof Customer) => {
     setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc' }));
@@ -336,7 +346,7 @@ export default function CustomersPage() {
         toast({ title: 'Customer updated', description: `"${values.customerName}" has been updated.` });
       } else {
         const newDoc = await addDoc(customersCollectionRef, dataToSave);
-        setCustomers([...customers, { ...dataToSave, id: newDoc.id }]);
+        useStore.getState().addCustomer({ ...dataToSave, id: newDoc.id });
         toast({ title: 'Customer created', description: `"${values.customerName}" has been created.` });
       }
       setIsFormOpen(false);
@@ -358,7 +368,7 @@ export default function CustomersPage() {
     const docRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/customers/${selectedCustomer.id}`);
     try {
       await deleteDoc(docRef);
-      setCustomers(customers.filter(c => c.id !== selectedCustomer.id));
+      removeCustomer(selectedCustomer.id);
       toast({ title: 'Customer deleted', description: `"${selectedCustomer.customerName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
       setSelectedCustomer(null);
@@ -383,7 +393,7 @@ export default function CustomersPage() {
     });
     try {
       await batch.commit();
-      setCustomers(customers.filter(c => !selectedRows.includes(c.id)));
+      removeCustomers(selectedRows);
       toast({ title: `${selectedRows.length} customers deleted.` });
       setIsBatchDeleteConfirmOpen(false);
       setSelectedRows([]);
@@ -395,7 +405,7 @@ export default function CustomersPage() {
   
   const handleSelectAll = (checked: boolean | string) => {
     if (checked) {
-      setSelectedRows(sortedAndFilteredCustomers.map(c => c.id));
+      setSelectedRows(paginatedCustomers.map(c => c.id));
     } else {
       setSelectedRows([]);
     }
@@ -458,7 +468,7 @@ export default function CustomersPage() {
                 <TableRow>
                   <TableHead padding="checkbox" className="w-[50px] px-4">
                     <Checkbox
-                      checked={selectedRows.length > 0 && selectedRows.length === sortedAndFilteredCustomers.length && sortedAndFilteredCustomers.length > 0}
+                      checked={selectedRows.length > 0 && selectedRows.length === paginatedCustomers.length && paginatedCustomers.length > 0}
                       onCheckedChange={handleSelectAll}
                       aria-label="Select all"
                     />
@@ -473,8 +483,8 @@ export default function CustomersPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow><TableCell colSpan={6} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
-                ) : sortedAndFilteredCustomers.length > 0 ? (
-                  sortedAndFilteredCustomers.map((customer) => (
+                ) : paginatedCustomers.length > 0 ? (
+                  paginatedCustomers.map((customer) => (
                     <TableRow key={customer.id} data-state={selectedRows.includes(customer.id) && "selected"}>
                       <TableCell padding="checkbox" className="px-4">
                         <Checkbox
@@ -508,6 +518,27 @@ export default function CustomersPage() {
                 )}
               </TableBody>
             </Table>
+          </div>
+          <div className="flex items-center justify-end space-x-2 py-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -606,5 +637,3 @@ export default function CustomersPage() {
     </div>
   );
 }
-
-    

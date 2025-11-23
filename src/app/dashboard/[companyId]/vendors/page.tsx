@@ -91,6 +91,7 @@ const vendorSchema = z.object({
 
 type VendorFormValues = z.infer<typeof vendorSchema>;
 
+const ITEMS_PER_PAGE = 10;
 
 // LinkAccountDialog Component
 const LinkAccountDialog = ({ open, onOpenChange, vendor, onLink, accounts }: { open: boolean, onOpenChange: (open: boolean) => void, vendor: Vendor, onLink: (accountId: string) => void, accounts: ChartOfAccount[] }) => {
@@ -159,7 +160,7 @@ export default function VendorsPage() {
   const { user } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
-  const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts, updateVendor } = useStore();
+  const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts, updateVendor, removeVendor, removeVendors } = useStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [sortConfig, setSortConfig] = useState<{
@@ -167,6 +168,7 @@ export default function VendorsPage() {
     direction: 'asc' | 'desc';
   }>({ key: 'vendorName', direction: 'asc' });
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   // State for modals
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -247,6 +249,13 @@ export default function VendorsPage() {
 
     return filtered;
   }, [vendors, searchTerm, sortConfig]);
+
+  const paginatedVendors = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return sortedAndFilteredVendors.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [sortedAndFilteredVendors, currentPage]);
+
+  const totalPages = Math.ceil(sortedAndFilteredVendors.length / ITEMS_PER_PAGE);
 
   const handleSort = (key: keyof Vendor) => {
     setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc' }));
@@ -338,8 +347,8 @@ export default function VendorsPage() {
         toast({ title: 'Vendor updated', description: `"${values.vendorName}" has been updated.` });
       } else {
         const newDoc = await addDoc(vendorsCollectionRef, dataToSave);
-        setVendors([...vendors, { ...dataToSave, id: newDoc.id }]);
-        toast({ title: 'Vendor created', description: `"${values.vendorName}" has been created.` });
+        useStore.getState().addVendor({ ...dataToSave, id: newDoc.id });
+        toast({ title: 'Vendor created', description: `"${values.vendorName}" has been added.` });
       }
       setIsFormOpen(false);
       setSelectedRows([]);
@@ -360,7 +369,7 @@ export default function VendorsPage() {
     const docRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/vendors/${selectedVendor.id}`);
     try {
       await deleteDoc(docRef);
-      setVendors(vendors.filter(v => v.id !== selectedVendor.id));
+      removeVendor(selectedVendor.id);
       toast({ title: 'Vendor deleted', description: `"${selectedVendor.vendorName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
       setSelectedVendor(null);
@@ -385,7 +394,7 @@ export default function VendorsPage() {
     });
     try {
       await batch.commit();
-      setVendors(vendors.filter(v => !selectedRows.includes(v.id)));
+      removeVendors(selectedRows);
       toast({ title: `${selectedRows.length} vendors deleted.` });
       setIsBatchDeleteConfirmOpen(false);
       setSelectedRows([]);
@@ -397,7 +406,7 @@ export default function VendorsPage() {
 
   const handleSelectAll = (checked: boolean | string) => {
     if (checked) {
-      setSelectedRows(sortedAndFilteredVendors.map(v => v.id));
+      setSelectedRows(paginatedVendors.map(v => v.id));
     } else {
       setSelectedRows([]);
     }
@@ -460,7 +469,7 @@ export default function VendorsPage() {
                 <TableRow>
                   <TableHead padding="checkbox" className="w-[50px] px-4">
                     <Checkbox
-                      checked={selectedRows.length > 0 && selectedRows.length === sortedAndFilteredVendors.length && sortedAndFilteredVendors.length > 0}
+                      checked={selectedRows.length > 0 && selectedRows.length === paginatedVendors.length && paginatedVendors.length > 0}
                       onCheckedChange={handleSelectAll}
                       aria-label="Select all"
                     />
@@ -475,8 +484,8 @@ export default function VendorsPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow><TableCell colSpan={6} className="text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /></TableCell></TableRow>
-                ) : sortedAndFilteredVendors.length > 0 ? (
-                  sortedAndFilteredVendors.map((vendor) => (
+                ) : paginatedVendors.length > 0 ? (
+                  paginatedVendors.map((vendor) => (
                     <TableRow key={vendor.id} data-state={selectedRows.includes(vendor.id) && "selected"}>
                       <TableCell padding="checkbox" className="px-4">
                         <Checkbox
@@ -510,6 +519,27 @@ export default function VendorsPage() {
                 )}
               </TableBody>
             </Table>
+          </div>
+          <div className="flex items-center justify-end space-x-2 py-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -607,5 +637,3 @@ export default function VendorsPage() {
     </div>
   );
 }
-
-    

@@ -84,13 +84,15 @@ const accountSchema = z.object({
 
 type AccountFormValues = z.infer<typeof accountSchema>;
 
+const ITEMS_PER_PAGE = 10;
+
 export default function ChartOfAccountsPage() {
   const params = useParams() as { companyId: string };
   const { user } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
 
-  const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts, updateChartOfAccount } = useStore();
+  const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts, updateChartOfAccount, removeChartOfAccount, removeChartOfAccounts } = useStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isLinking, setIsLinking] = useState(false);
@@ -99,6 +101,7 @@ export default function ChartOfAccountsPage() {
     direction: 'asc' | 'desc';
   }>({ key: 'accountName', direction: 'asc' });
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   // State for modals and selection
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -183,6 +186,13 @@ export default function ChartOfAccountsPage() {
     return accounts;
   }, [chartOfAccounts, searchTerm, sortConfig]);
 
+  const paginatedAccounts = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return sortedAndFilteredAccounts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [sortedAndFilteredAccounts, currentPage]);
+
+  const totalPages = Math.ceil(sortedAndFilteredAccounts.length / ITEMS_PER_PAGE);
+
   const handleRunInterlink = async () => {
     if (!firestore || !user || !chartOfAccounts.length || (!vendors.length && !customers.length)) {
       toast({
@@ -209,6 +219,12 @@ export default function ChartOfAccountsPage() {
         batch.set(vendorRef, { defaultExpenseAccountId: link.chartOfAccountId }, { merge: true });
         const coaRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts/${link.chartOfAccountId}`);
         batch.set(coaRef, { defaultVendorId: link.vendorId }, { merge: true });
+        
+        // Update global state
+        const vendor = vendors.find(v => v.id === link.vendorId);
+        if(vendor) updateVendor({...vendor, defaultExpenseAccountId: link.chartOfAccountId});
+        const account = chartOfAccounts.find(a => a.id === link.chartOfAccountId);
+        if(account) updateChartOfAccount({...account, defaultVendorId: link.vendorId});
       });
 
       result.customerLinks.forEach(link => {
@@ -216,6 +232,12 @@ export default function ChartOfAccountsPage() {
         batch.set(customerRef, { defaultRevenueAccountId: link.chartOfAccountId }, { merge: true });
          const coaRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts/${link.chartOfAccountId}`);
          batch.set(coaRef, { defaultCustomerId: link.customerId }, { merge: true });
+
+         // Update global state
+         const customer = customers.find(c => c.id === link.customerId);
+         if(customer) useStore.getState().updateCustomer({...customer, defaultRevenueAccountId: link.chartOfAccountId});
+         const account = chartOfAccounts.find(a => a.id === link.chartOfAccountId);
+         if(account) updateChartOfAccount({...account, defaultCustomerId: link.customerId});
       });
 
       await batch.commit();
@@ -224,7 +246,6 @@ export default function ChartOfAccountsPage() {
         title: 'Interlinking Complete!',
         description: `${result.vendorLinks.length} vendor(s) and ${result.customerLinks.length} customer(s) have been linked.`,
       });
-       fetchAllData();
 
     } catch (error) {
       console.error('AI Interlinking failed:', error);
@@ -290,7 +311,7 @@ export default function ChartOfAccountsPage() {
         toast({ title: 'Account updated', description: `"${values.accountName}" has been updated.` });
       } else {
         const newDoc = await addDoc(coaCollectionRef, dataToSave);
-        setChartOfAccounts([...chartOfAccounts, { ...dataToSave, id: newDoc.id }]);
+        useStore.getState().addChartOfAccount({ ...dataToSave, id: newDoc.id });
         toast({ title: 'Account created', description: `"${values.accountName}" has been added.` });
       }
       setIsFormOpen(false);
@@ -312,7 +333,7 @@ export default function ChartOfAccountsPage() {
     const docRef = doc(firestore, `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts/${selectedAccount.id}`);
     try {
       await deleteDoc(docRef);
-      setChartOfAccounts(chartOfAccounts.filter(acc => acc.id !== selectedAccount.id));
+      removeChartOfAccount(selectedAccount.id);
       toast({ title: 'Account deleted', description: `"${selectedAccount.accountName}" has been deleted.` });
       setIsDeleteConfirmOpen(false);
       setSelectedAccount(null);
@@ -337,7 +358,7 @@ export default function ChartOfAccountsPage() {
     });
     try {
       await batch.commit();
-      setChartOfAccounts(chartOfAccounts.filter(acc => !selectedRows.includes(acc.id)));
+      removeChartOfAccounts(selectedRows);
       toast({ title: `${selectedRows.length} accounts deleted.` });
       setIsBatchDeleteConfirmOpen(false);
       setSelectedRows([]);
@@ -349,7 +370,7 @@ export default function ChartOfAccountsPage() {
 
   const handleSelectAll = (checked: boolean | string) => {
     if (checked) {
-      setSelectedRows(sortedAndFilteredAccounts.map(a => a.id));
+      setSelectedRows(paginatedAccounts.map(a => a.id));
     } else {
       setSelectedRows([]);
     }
@@ -431,7 +452,7 @@ export default function ChartOfAccountsPage() {
                 <TableRow>
                   <TableHead padding="checkbox" className="w-[50px] px-4">
                     <Checkbox
-                      checked={selectedRows.length > 0 && selectedRows.length === sortedAndFilteredAccounts.length && sortedAndFilteredAccounts.length > 0}
+                      checked={selectedRows.length > 0 && selectedRows.length === paginatedAccounts.length && paginatedAccounts.length > 0}
                       onCheckedChange={handleSelectAll}
                       aria-label="Select all"
                     />
@@ -457,8 +478,8 @@ export default function ChartOfAccountsPage() {
                       <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
                     </TableCell>
                   </TableRow>
-                ) : sortedAndFilteredAccounts.length > 0 ? (
-                  sortedAndFilteredAccounts.map((account) => (
+                ) : paginatedAccounts.length > 0 ? (
+                  paginatedAccounts.map((account) => (
                     <TableRow key={account.id} data-state={selectedRows.includes(account.id) && "selected"}>
                       <TableCell padding="checkbox" className="px-4">
                         <Checkbox
@@ -504,6 +525,27 @@ export default function ChartOfAccountsPage() {
                 )}
               </TableBody>
             </Table>
+          </div>
+          <div className="flex items-center justify-end space-x-2 py-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -625,5 +667,3 @@ export default function ChartOfAccountsPage() {
     </div>
   );
 }
-
-    

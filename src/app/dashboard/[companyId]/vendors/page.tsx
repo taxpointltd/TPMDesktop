@@ -144,7 +144,7 @@ export default function VendorsPage() {
     if (vendorsCollectionRef) {
       fetchVendors('first');
     }
-  }, [sortConfig, vendorsCollectionRef, fetchVendors]);
+  }, [sortConfig, vendorsCollectionRef]);
 
   const handleNextPage = () => {
     if (!isLastPage) {

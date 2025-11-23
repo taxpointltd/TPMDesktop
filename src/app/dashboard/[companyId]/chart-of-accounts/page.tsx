@@ -145,7 +145,7 @@ export default function ChartOfAccountsPage() {
     if (coaCollectionRef) {
         fetchAccounts('first');
     }
-  }, [sortConfig, coaCollectionRef, fetchAccounts]);
+  }, [sortConfig, coaCollectionRef]);
 
   const handleNextPage = () => {
     if (!isLastPage) {
@@ -259,7 +259,7 @@ export default function ChartOfAccountsPage() {
                       <TableCell className="font-medium">
                         {account.accountName}
                       </TableCell>
-                      <TableCell>{account.accountNumber || 'N/A'}</TableCell>
+                      <TableCell>{account.accountNumber || 'N/A'}</TableCell>                      
                       <TableCell>{account.accountType || 'N/A'}</TableCell>
                       <TableCell>
                         {account.accountDescription || 'N/A'}

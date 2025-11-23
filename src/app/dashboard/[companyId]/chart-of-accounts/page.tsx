@@ -148,7 +148,11 @@ export default function ChartOfAccountsPage() {
       let q;
       const { key, direction: sortDirection } = sortConfig;
 
-      if (direction === 'next' && lastVisible) {
+      // Resetting to first page
+      if (direction === 'first') {
+        q = query(coaCollectionRef, orderBy(key, sortDirection), limit(PAGE_SIZE));
+        setPage(1);
+      } else if (direction === 'next' && lastVisible) {
         q = query(
           coaCollectionRef,
           orderBy(key, sortDirection),
@@ -163,11 +167,8 @@ export default function ChartOfAccountsPage() {
           limitToLast(PAGE_SIZE)
         );
       } else {
-        q = query(
-          coaCollectionRef,
-          orderBy(key, sortDirection),
-          limit(PAGE_SIZE)
-        );
+        // Fallback to first page if pagination state is weird
+        q = query(coaCollectionRef, orderBy(key, sortDirection), limit(PAGE_SIZE));
         setPage(1);
       }
 

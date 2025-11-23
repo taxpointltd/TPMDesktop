@@ -138,14 +138,19 @@ export default function VendorsPage() {
 
     let q;
     const { key, direction: sortDirection } = sortConfig;
-
-    if (direction === 'next' && lastVisible) {
+    
+    // Resetting to first page
+    if (direction === 'first') {
+      q = query(vendorsCollectionRef, orderBy(key, sortDirection), limit(PAGE_SIZE));
+      setPage(1);
+    } else if (direction === 'next' && lastVisible) {
       q = query(vendorsCollectionRef, orderBy(key, sortDirection), startAfter(lastVisible), limit(PAGE_SIZE));
     } else if (direction === 'prev' && firstVisible) {
       q = query(vendorsCollectionRef, orderBy(key, sortDirection), endBefore(firstVisible), limitToLast(PAGE_SIZE));
     } else {
-      q = query(vendorsCollectionRef, orderBy(key, sortDirection), limit(PAGE_SIZE));
-      setPage(1);
+        // Fallback to first page if pagination state is weird
+        q = query(vendorsCollectionRef, orderBy(key, sortDirection), limit(PAGE_SIZE));
+        setPage(1);
     }
 
     try {

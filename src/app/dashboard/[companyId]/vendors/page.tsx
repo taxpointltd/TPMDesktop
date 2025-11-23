@@ -69,28 +69,23 @@ export default function VendorsPage() {
 
   const vendorsCollectionRef = useMemoFirebase(() => {
     if (!user || !firestore) {
-      console.log('VendorsPage: User or Firestore not available.');
       return null;
     }
     const path = `/users/${user.uid}/companies/${params.companyId}/vendors`;
-    console.log('VendorsPage: Creating collection reference for path:', path);
     return collection(firestore, path);
   }, [firestore, user, params.companyId]);
 
   const fetchVendors = useCallback(
     async (direction: 'next' | 'prev' | 'first' = 'first') => {
       if (!vendorsCollectionRef) {
-        console.log('VendorsPage: fetchVendors called but collection ref is not ready.');
         return;
       }
-      console.log(`VendorsPage: Starting fetchVendors with direction: ${direction}`);
       setIsLoading(true);
 
       let q;
       const { key, direction: sortDirection } = sortConfig;
 
       if (direction === 'next' && lastVisible) {
-        console.log('VendorsPage: Fetching NEXT page.');
         q = query(
           vendorsCollectionRef,
           orderBy(key, sortDirection),
@@ -98,7 +93,6 @@ export default function VendorsPage() {
           limit(PAGE_SIZE)
         );
       } else if (direction === 'prev' && firstVisible) {
-        console.log('VendorsPage: Fetching PREVIOUS page.');
         q = query(
           vendorsCollectionRef,
           orderBy(key, sortDirection),
@@ -106,7 +100,6 @@ export default function VendorsPage() {
           limitToLast(PAGE_SIZE)
         );
       } else {
-        console.log('VendorsPage: Fetching FIRST page.');
         q = query(
           vendorsCollectionRef,
           orderBy(key, sortDirection),
@@ -116,17 +109,13 @@ export default function VendorsPage() {
       }
 
       try {
-        console.log('VendorsPage: Executing getDocs query.');
         const documentSnapshots = await getDocs(q);
-        console.log(`VendorsPage: getDocs returned ${documentSnapshots.docs.length} documents.`);
         
         const newVendors = documentSnapshots.docs.map((doc) => {
-          const data = {
+          return {
             id: doc.id,
             ...doc.data(),
           } as Vendor;
-          console.log('VendorsPage: Mapping doc:', data);
-          return data;
         });
 
         if (!documentSnapshots.empty) {
@@ -134,15 +123,12 @@ export default function VendorsPage() {
           setFirstVisible(documentSnapshots.docs[0]);
           setVendors(newVendors);
           setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
-          console.log('VendorsPage: State updated with new vendors. Count:', newVendors.length);
         } else if (direction === 'first') {
-          console.log('VendorsPage: No vendors found on first fetch.');
           setVendors([]);
           setLastVisible(null);
           setFirstVisible(null);
           setIsLastPage(true);
         } else {
-          console.log('VendorsPage: Empty snapshot on pagination.');
           if (direction === 'next') {
             setIsLastPage(true);
           }
@@ -152,14 +138,12 @@ export default function VendorsPage() {
         setVendors([]);
       } finally {
         setIsLoading(false);
-        console.log('VendorsPage: fetchVendors finished.');
       }
     },
     [vendorsCollectionRef, lastVisible, firstVisible, sortConfig]
   );
 
   useEffect(() => {
-    console.log('VendorsPage: useEffect triggered. Ref available:', !!vendorsCollectionRef);
     if (vendorsCollectionRef) {
       fetchVendors('first');
     }
@@ -202,8 +186,6 @@ export default function VendorsPage() {
       <ArrowUpDown className="ml-2 h-4 w-4" />
     );
   };
-  
-  console.log('VendorsPage: Rendering component. Current vendors state count:', vendors.length, 'isLoading:', isLoading);
 
   return (
     <div className="space-y-6">

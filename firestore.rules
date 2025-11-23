@@ -5,166 +5,50 @@
  * ensures that a user can only ever access their own data tree, providing strong
  * data isolation between different users of the application.
  *
- * Data Structure:
- * The data is organized in a clear hierarchy:
- * /users/{userId} -> (User Profile)
- *   /companies/{companyId} -> (Company Profile)
- *     /vendors/{vendorId}
- *     /customers/{customerId}
- *     /chartOfAccounts/{chartOfAccountId}
- *     /transactions/{transactionId}
- *
  * Authorization is based entirely on the `userId` present in the document path.
- * This path-based security model is highly performant as it does not require
- * reading other documents (`get()` calls) to make an authorization decision.
- *
- * Key Security Decisions:
- * - Default Deny: All access is denied by default. Rules explicitly grant permissions.
- * - User Isolation: A user's authentication UID must match the `{userId}` in the
- *   path for any access to be granted.
- * - No User Enumeration: Listing the top-level `/users` collection is explicitly
- *   disallowed to prevent leaking the application's user list.
- * - Relational Integrity: On document creation, key identifiers (e.g., `userId`,
- *   `companyId`) are validated to ensure they match the document's path. These
- *   identifiers are enforced as immutable on updates to prevent data from being
- *   "moved" or re-assigned.
+ * This path-based security model is highly performant and secure.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions to improve readability and maintainability.
-    
     /**
-     * Checks if the user is authenticated.
-     */
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    /**
-     * Checks if the authenticated user's UID matches the provided userId from the path.
-     * This is the cornerstone of the user-ownership security model.
+     * Helper function to check if the user's UID matches the {userId} in the path.
+     * This is the cornerstone of the user-ownership model.
      */
     function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-    
-    /**
-     * Verifies that a document already exists in Firestore.
-     * Crucial for update and delete operations to prevent acting on non-existent data.
-     */
-    function isExistingDoc() {
-      return resource != null;
+      return request.auth != null && request.auth.uid == userId;
     }
 
     /**
      * @description
      *   Manages user profile documents. A user can create their own profile, but
-     *   cannot see or list other users' profiles. Once created, they have full
-     *   control over their own document.
-     * @path /users/{userId}
-     * @allow (create) An authenticated user with UID 'user_abc' creating their own
-     *   profile at /users/user_abc. The document data must include `id: 'user_abc'`.
-     * @deny (list) Any user attempting to list the /users collection to prevent
-     *   user enumeration.
-     * @principle Restricts access to a user's own data tree and prevents enumeration.
+     *   cannot see or list other users' profiles.
      */
     match /users/{userId} {
       allow get: if isOwner(userId);
-      allow list: if false;
+      allow list: if false; // Disallow listing all users for security.
       allow create: if isOwner(userId) && request.resource.data.id == userId;
-      allow update: if isOwner(userId) && isExistingDoc() && request.resource.data.id == resource.data.id;
-      allow delete: if isOwner(userId) && isExistingDoc();
+      allow update, delete: if isOwner(userId);
 
       /**
        * @description
        *   Secures the 'companies' subcollection. Access is granted if the user
-       *   owns the parent user document specified in the path.
-       * @path /users/{userId}/companies/{companyId}
-       * @allow (create, read) User 'user_abc' creating or reading a company at
-       *   /users/user_abc/companies/company_123.
-       * @deny (read, write) User 'user_xyz' trying to access anything under
-       *   /users/user_abc/companies/.
-       * @principle Enforces inherited ownership from the parent document path.
+       *   owns the parent user document.
        */
       match /companies/{companyId} {
-        allow get: if isOwner(userId);
-        allow list: if isOwner(userId);
-        allow create: if isOwner(userId) && request.resource.data.userId == userId;
-        allow update: if isOwner(userId) && isExistingDoc() && request.resource.data.userId == resource.data.userId;
-        allow delete: if isOwner(userId) && isExistingDoc();
+        // Allow the owner to read, write, and list their own companies.
+        allow read, write: if isOwner(userId);
 
         /**
          * @description
-         *   Secures the 'vendors' subcollection. Access is determined by ownership
-         *   of the top-level user profile.
-         * @path /users/{userId}/companies/{companyId}/vendors/{vendorId}
-         * @allow (read, write) User 'user_abc' managing vendors for their own company.
-         * @deny (read, write) Any user trying to access vendors of a company they
-         *   do not own.
-         * @principle Enforces inherited ownership and validates relational integrity.
+         *   Secures all subcollections under a company (vendors, customers, etc.).
+         *   If a user owns the company (via the {userId} in the path), they have
+         *   full read and write access to these subcollections. This is an
+         *   inherited permissions model.
          */
-        match /vendors/{vendorId} {
-          allow get: if isOwner(userId);
-          allow list: if isOwner(userId);
-          allow create: if isOwner(userId) && request.resource.data.companyId == companyId;
-          allow update: if isOwner(userId) && isExistingDoc() && request.resource.data.companyId == resource.data.companyId;
-          allow delete: if isOwner(userId) && isExistingDoc();
-        }
-
-        /**
-         * @description
-         *   Secures the 'customers' subcollection. Access is determined by ownership
-         *   of the top-level user profile.
-         * @path /users/{userId}/companies/{companyId}/customers/{customerId}
-         * @allow (read, write) User 'user_abc' managing customers for their own company.
-         * @deny (read, write) Any user trying to access customers of a company they
-         *   do not own.
-         * @principle Enforces inherited ownership and validates relational integrity.
-         */
-        match /customers/{customerId} {
-          allow get: if isOwner(userId);
-          allow list: if isOwner(userId);
-          allow create: if isOwner(userId) && request.resource.data.companyId == companyId;
-          allow update: if isOwner(userId) && isExistingDoc() && request.resource.data.companyId == resource.data.companyId;
-          allow delete: if isOwner(userId) && isExistingDoc();
-        }
-
-        /**
-         * @description
-         *   Secures the 'chartOfAccounts' subcollection. Access is determined by
-         *   ownership of the top-level user profile.
-         * @path /users/{userId}/companies/{companyId}/chartOfAccounts/{chartOfAccountId}
-         * @allow (read, write) User 'user_abc' managing chart of accounts for their own company.
-         * @deny (read, write) Any user trying to access accounts of a company they
-         *   do not own.
-         * @principle Enforces inherited ownership and validates relational integrity.
-         */
-        match /chartOfAccounts/{chartOfAccountId} {
-          allow get: if isOwner(userId);
-          allow list: if isOwner(userId);
-          allow create: if isOwner(userId) && request.resource.data.companyId == companyId;
-          allow update: if isOwner(userId) && isExistingDoc() && request.resource.data.companyId == resource.data.companyId;
-          allow delete: if isOwner(userId) && isExistingDoc();
-        }
-
-        /**
-         * @description
-         *   Secures the 'transactions' subcollection. Access is determined by
-         *   ownership of the top-level user profile.
-         * @path /users/{userId}/companies/{companyId}/transactions/{transactionId}
-         * @allow (read, write) User 'user_abc' managing transactions for their own company.
-         * @deny (read, write) Any user trying to access transactions of a company they
-         *   do not own.
-         * @principle Enforces inherited ownership and validates relational integrity.
-         */
-        match /transactions/{transactionId} {
-          allow get: if isOwner(userId);
-          allow list: if isOwner(userId);
-          allow create: if isOwner(userId) && request.resource.data.companyId == companyId;
-          allow update: if isOwner(userId) && isExistingDoc() && request.resource.data.companyId == resource.data.companyId;
-          allow delete: if isOwner(userId) && isExistingDoc();
+        match /{subcollection}/{docId} {
+          allow read, write: if isOwner(userId);
         }
       }
     }

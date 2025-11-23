@@ -70,11 +70,9 @@ export default function ChartOfAccountsPage() {
 
   const coaCollectionRef = useMemoFirebase(() => {
     if (!user || !firestore) {
-      console.log('ChartOfAccountsPage: User or Firestore not available.');
       return null;
     }
     const path = `/users/${user.uid}/companies/${params.companyId}/chartOfAccounts`;
-    console.log('ChartOfAccountsPage: Creating collection reference for path:', path);
     return collection(
       firestore,
       path
@@ -84,17 +82,14 @@ export default function ChartOfAccountsPage() {
   const fetchAccounts = useCallback(
     async (direction: 'next' | 'prev' | 'first' = 'first') => {
       if (!coaCollectionRef) {
-        console.log('ChartOfAccountsPage: fetchAccounts called but collection ref is not ready.');
         return;
       }
-      console.log(`ChartOfAccountsPage: Starting fetchAccounts with direction: ${direction}`);
       setIsLoading(true);
 
       let q;
       const { key, direction: sortDirection } = sortConfig;
 
       if (direction === 'next' && lastVisible) {
-        console.log('ChartOfAccountsPage: Fetching NEXT page.');
         q = query(
           coaCollectionRef,
           orderBy(key, sortDirection),
@@ -102,7 +97,6 @@ export default function ChartOfAccountsPage() {
           limit(PAGE_SIZE)
         );
       } else if (direction === 'prev' && firstVisible) {
-        console.log('ChartOfAccountsPage: Fetching PREVIOUS page.');
         q = query(
           coaCollectionRef,
           orderBy(key, sortDirection),
@@ -110,7 +104,6 @@ export default function ChartOfAccountsPage() {
           limitToLast(PAGE_SIZE)
         );
       } else {
-        console.log('ChartOfAccountsPage: Fetching FIRST page.');
         q = query(
           coaCollectionRef,
           orderBy(key, sortDirection),
@@ -120,17 +113,13 @@ export default function ChartOfAccountsPage() {
       }
 
       try {
-        console.log('ChartOfAccountsPage: Executing getDocs query.');
         const documentSnapshots = await getDocs(q);
-        console.log(`ChartOfAccountsPage: getDocs returned ${documentSnapshots.docs.length} documents.`);
 
         const newAccounts = documentSnapshots.docs.map((doc) => {
-          const data = {
+          return {
             id: doc.id,
             ...doc.data(),
           } as ChartOfAccount;
-          console.log('ChartOfAccountsPage: Mapping doc:', data);
-          return data;
         });
 
         if (!documentSnapshots.empty) {
@@ -140,15 +129,12 @@ export default function ChartOfAccountsPage() {
           setFirstVisible(documentSnapshots.docs[0]);
           setAccounts(newAccounts);
           setIsLastPage(documentSnapshots.docs.length < PAGE_SIZE);
-          console.log('ChartOfAccountsPage: State updated with new accounts. Count:', newAccounts.length);
         } else if (direction === 'first') {
-          console.log('ChartOfAccountsPage: No accounts found on first fetch.');
           setAccounts([]);
           setLastVisible(null);
           setFirstVisible(null);
           setIsLastPage(true);
         } else {
-          console.log('ChartOfAccountsPage: Empty snapshot on pagination.');
           if (direction === 'next') {
             setIsLastPage(true);
           }
@@ -158,14 +144,12 @@ export default function ChartOfAccountsPage() {
         setAccounts([]);
       } finally {
         setIsLoading(false);
-        console.log('ChartOfAccountsPage: fetchAccounts finished.');
       }
     },
     [coaCollectionRef, lastVisible, firstVisible, sortConfig]
   );
 
   useEffect(() => {
-    console.log('ChartOfAccountsPage: useEffect triggered. Ref available:', !!coaCollectionRef);
     if (coaCollectionRef) {
         fetchAccounts('first');
     }
@@ -208,8 +192,6 @@ export default function ChartOfAccountsPage() {
       <ArrowUpDown className="ml-2 h-4 w-4" />
     );
   };
-  
-  console.log('ChartOfAccountsPage: Rendering component. Current accounts state count:', accounts.length, 'isLoading:', isLoading);
   
   return (
     <div className="space-y-6">

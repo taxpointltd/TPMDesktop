@@ -54,4 +54,18 @@ export interface Transaction {
   vendorId?: string;
   customerId?: string;
   chartOfAccountId?: string;
+  // Fields for UI state during matching
+  status: 'unmatched' | 'matched' | 'edited' | 'confirmed';
+  matchedEntityName?: string;
+  matchedAccountName?: string;
+}
+
+export interface RawTransaction {
+    'TransactionDate': string;
+    'Appears On Your Statement As': string;
+    'Name': string;
+    'Account': string;
+    'Amount': number;
+    'Category': string;
+    'Payment Account': string;
 }

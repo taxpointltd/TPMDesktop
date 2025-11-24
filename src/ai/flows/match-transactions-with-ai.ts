@@ -9,23 +9,26 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z} from 'zod';
 
 const MatchTransactionsInputSchema = z.object({
-  transactionData: z
-    .string()
-    .describe('Transaction data from an Excel sheet as a string.'),
-  vendors: z.string().describe('A list of vendors.'),
-  customers: z.string().describe('A list of customers.'),
-  chartOfAccounts: z.string().describe('A list of chart of accounts.'),
-  existingCompanies: z.string().describe('A list of companies.'),
+  transactions: z.string().describe('A JSON string of raw transaction data from an Excel sheet.'),
+  vendors: z.string().describe('A JSON string representing a list of vendors, each with an id and vendorName.'),
+  customers: z.string().describe('A JSON string representing a list of customers, each with an id and customerName.'),
+  chartOfAccounts: z.string().describe('A JSON string of the chart of accounts, with id, names, and numbers.'),
 });
 export type MatchTransactionsInput = z.infer<typeof MatchTransactionsInputSchema>;
 
+
+const MatchedTransactionSchema = z.object({
+  rawTransactionIndex: z.number().describe('The original index of the transaction from the input array.'),
+  vendorId: z.string().optional().describe('The ID of the matched vendor, if any.'),
+  customerId: z.string().optional().describe('The ID of the matched customer, if any.'),
+  chartOfAccountId: z.string().optional().describe('The ID of the matched account from the chart of accounts.'),
+});
+
 const MatchTransactionsOutputSchema = z.object({
-  matchedTransactions: z
-    .string()
-    .describe('A list of matched transactions with vendors, customers, and chart of accounts.'),
+  matchedTransactions: z.array(MatchedTransactionSchema),
 });
 export type MatchTransactionsOutput = z.infer<typeof MatchTransactionsOutputSchema>;
 
@@ -37,19 +40,36 @@ const matchTransactionsPrompt = ai.definePrompt({
   name: 'matchTransactionsPrompt',
   input: {schema: MatchTransactionsInputSchema},
   output: {schema: MatchTransactionsOutputSchema},
-  prompt: `You are an expert accountant specializing in transaction matching.
+  prompt: `You are an expert accounting AI. Your task is to match a list of raw bank transactions to the appropriate vendors, customers, and chart of accounts.
 
-You will receive transaction data, a list of vendors, a list of customers, a chart of accounts, and a list of existing companies.
+You will be given the following data as JSON strings:
+1.  A list of raw transactions, each with a description (e.g., 'Appears On Your Statement As').
+2.  A list of known Vendors, each with an 'id' and 'vendorName'.
+3.  A list of known Customers, each with an 'id' and 'customerName'.
+4.  A Chart of Accounts (COA), with each account having an 'id', account details, and potentially a 'defaultVendorId' or 'defaultCustomerId'.
 
-Your goal is to automatically match the transactions with the correct vendors, customers, chart of accounts and companies.
+For each raw transaction, follow these steps:
+1.  Analyze the transaction description (the 'Appears On Your Statement As' field) to identify if it relates to a known Vendor or Customer. Match based on the name. For example, a description 'STARBUCKS COFFEE #123' should match the vendor 'Starbucks'.
+2.  If you find a matching Vendor or Customer, record their 'id'.
+3.  After identifying the entity (Vendor/Customer), determine the correct Chart of Account entry.
+    - If the matched Vendor has a 'defaultExpenseAccountId', or the Customer has a 'defaultRevenueAccountId', use that as the 'chartOfAccountId'.
+    - If there's no default account linked, try to infer the best account from the COA based on the transaction description and the entity's name. Look for keywords.
+    - If no entity is matched, still attempt to categorize the transaction by selecting the most appropriate account from the COA based on the description.
+4.  If you cannot reliably match a vendor, customer, or account, leave the corresponding ID field empty.
 
-Transaction Data: {{{transactionData}}}
+Return a JSON object containing a 'matchedTransactions' array. Each item in the array must correspond to a transaction from the input and include:
+- 'rawTransactionIndex': The original 0-based index of the transaction.
+- 'vendorId': The ID of the matched vendor.
+- 'customerId': The ID of the matched customer.
+- 'chartOfAccountId': The ID of the matched account.
+
+Here is the data:
+Transactions: {{{transactions}}}
 Vendors: {{{vendors}}}
 Customers: {{{customers}}}
 Chart of Accounts: {{{chartOfAccounts}}}
-Existing Companies: {{{existingCompanies}}}
 
-Return the matched transactions in a clear and concise format.
+Provide only the JSON output.
 `,
 });
 

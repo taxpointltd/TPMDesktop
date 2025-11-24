@@ -151,23 +151,34 @@ export default function TransactionsPage() {
         reader.onload = (e) => {
             try {
                 const data = e.target?.result;
-                const workbook = XLSX.read(data, { type: 'binary', cellDates: true });
+                const workbook = XLSX.read(data, { type: 'binary' });
                 const sheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[sheetName];
-                let json: RawTransaction[] = XLSX.utils.sheet_to_json(worksheet, { raw: false });
+                let json: any[] = XLSX.utils.sheet_to_json(worksheet, { raw: false });
 
-                // Sanitize and convert dates
-                json = json.map(row => ({
-                    ...row,
-                    TransactionDate: row.TransactionDate instanceof Date 
-                        ? row.TransactionDate.toLocaleDateString('en-US') 
-                        : String(row.TransactionDate)
-                }));
+                // Sanitize and convert dates & amounts
+                const sanitizedJson: RawTransaction[] = json.map(row => {
+                    const dateValue = (row as any).TransactionDate;
+                    let formattedDate: string;
+                    if (typeof dateValue === 'number') {
+                        // It's an Excel serial date number
+                        formattedDate = excelSerialDateToJSDate(dateValue).toLocaleDateString('en-US');
+                    } else {
+                        // It's already a string or Date object
+                        formattedDate = new Date(dateValue).toLocaleDateString('en-US');
+                    }
+
+                    return {
+                        ...row,
+                        TransactionDate: formattedDate,
+                        Amount: parseFloat(row.Amount) || 0, // Ensure amount is a number
+                    };
+                });
 
 
-                setRawTransactions(json);
+                setRawTransactions(sanitizedJson);
                 // Immediately populate reviewable transactions from raw data
-                const initialReviewed: Transaction[] = json.map((raw, index) => ({
+                const initialReviewed: Transaction[] = sanitizedJson.map((raw, index) => ({
                     id: `temp-${index}`,
                     companyId: params.companyId,
                     date: raw.TransactionDate,
@@ -177,7 +188,7 @@ export default function TransactionsPage() {
                 }));
                 setReviewedTransactions(initialReviewed);
 
-                toast({ title: 'Upload Successful', description: `${json.length} transactions loaded for review.` });
+                toast({ title: 'Upload Successful', description: `${sanitizedJson.length} transactions loaded for review.` });
             } catch (error) {
                 console.error("File parsing error:", error);
                 toast({ variant: 'destructive', title: 'File Error', description: 'Could not parse the uploaded file.' });

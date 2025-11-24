@@ -19,12 +19,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
     Command,
     CommandEmpty,
     CommandGroup,
@@ -34,7 +28,7 @@ import {
   } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
-import { FileUp, Sparkles, FileDown, Loader2, MoreHorizontal, Check, ChevronsUpDown, Link as LinkIcon, Trash2 } from 'lucide-react';
+import { FileUp, Sparkles, FileDown, Loader2, Check, ChevronsUpDown } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -67,11 +61,14 @@ export default function TransactionsPage() {
     const { toast } = useToast();
     
     // Global state
-    const { vendors, customers, chartOfAccounts, setVendors, setCustomers, setChartOfAccounts } = useStore();
+    const { 
+        vendors, customers, chartOfAccounts, 
+        rawTransactions, reviewedTransactions,
+        setVendors, setCustomers, setChartOfAccounts,
+        setRawTransactions, setReviewedTransactions, updateReviewedTransaction
+    } = useStore();
     
     // Local state
-    const [rawTransactions, setRawTransactions] = useState<RawTransaction[]>([]);
-    const [reviewedTransactions, setReviewedTransactions] = useState<Transaction[]>([]);
     const [isUploading, setIsUploading] = useState(false);
     const [isMatching, setIsMatching] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
@@ -103,7 +100,12 @@ export default function TransactionsPage() {
   
     useEffect(() => {
       fetchAllData();
-    }, [fetchAllData]);
+      // Clear transactions on mount/company change
+      return () => {
+        setRawTransactions([]);
+        setReviewedTransactions([]);
+      }
+    }, [fetchAllData, setRawTransactions, setReviewedTransactions]);
 
     const allEntities = useMemo(() => [
         ...vendors.map(v => ({ id: v.id, name: v.vendorName, type: 'vendor' })),
@@ -135,8 +137,18 @@ export default function TransactionsPage() {
                 const json: RawTransaction[] = XLSX.utils.sheet_to_json(worksheet);
 
                 setRawTransactions(json);
-                setReviewedTransactions([]); // Clear previous results
-                toast({ title: 'Upload Successful', description: `${json.length} transactions loaded.` });
+                // Immediately populate reviewable transactions from raw data
+                const initialReviewed: Transaction[] = json.map((raw, index) => ({
+                    id: `temp-${index}`,
+                    companyId: params.companyId,
+                    date: raw.TransactionDate,
+                    amount: raw.Amount,
+                    description: raw['Appears On Your Statement As'],
+                    status: 'unmatched',
+                }));
+                setReviewedTransactions(initialReviewed);
+
+                toast({ title: 'Upload Successful', description: `${json.length} transactions loaded for review.` });
             } catch (error) {
                 console.error("File parsing error:", error);
                 toast({ variant: 'destructive', title: 'File Error', description: 'Could not parse the uploaded file.' });
@@ -176,12 +188,12 @@ export default function TransactionsPage() {
                     date: raw.TransactionDate,
                     amount: raw.Amount,
                     description: raw['Appears On Your Statement As'],
-                    status: match ? 'matched' : 'unmatched',
+                    status: match && (match.vendorId || match.customerId) ? 'matched' : 'unmatched',
                     vendorId: vendor?.id,
                     customerId: customer?.id,
                     chartOfAccountId: account?.id,
-                    matchedEntityName: vendor?.vendorName || customer?.customerName || 'N/A',
-                    matchedAccountName: account ? formatAccountName(account) : 'N/A',
+                    matchedEntityName: vendor?.vendorName || customer?.customerName || undefined,
+                    matchedAccountName: account ? formatAccountName(account) : undefined,
                 };
             });
             
@@ -195,20 +207,13 @@ export default function TransactionsPage() {
         }
     };
     
-    const handleUpdateTransaction = (index: number, updates: Partial<Transaction>) => {
-        setReviewedTransactions(prev => {
-            const newTransactions = [...prev];
-            const originalIndex = ((currentPage - 1) * ITEMS_PER_PAGE) + index;
-            if (newTransactions[originalIndex]) {
-                newTransactions[originalIndex] = { ...newTransactions[originalIndex], ...updates, status: 'edited' };
-            }
-            return newTransactions;
-        });
+    const handleUpdateTransactionLocal = (id: string, updates: Partial<Transaction>) => {
+        updateReviewedTransaction(id, { ...updates, status: 'edited' });
     };
 
     const handleSelectAll = (checked: boolean | string) => {
         if (checked) {
-          setSelectedRows(paginatedTransactions.map(t => t.id));
+          setSelectedRows(paginatedTransactions.filter(t => t.status !== 'confirmed').map(t => t.id));
         } else {
           setSelectedRows([]);
         }
@@ -225,22 +230,32 @@ export default function TransactionsPage() {
     const handleConfirmSelected = async () => {
         if (selectedRows.length === 0 || !firestore || !user) return;
         
-        const transactionsToConfirm = reviewedTransactions.filter(t => selectedRows.includes(t.id));
+        const transactionsToConfirm = reviewedTransactions.filter(t => selectedRows.includes(t.id) && t.status !== 'confirmed');
+        if (transactionsToConfirm.length === 0) {
+            toast({ title: "Nothing to confirm", description: "Selected transactions have already been confirmed."});
+            return;
+        }
+
         const batch = writeBatch(firestore);
 
         transactionsToConfirm.forEach(t => {
-            if (t.status !== 'confirmed') {
-                const docRef = doc(collection(firestore, `/users/${user.uid}/companies/${params.companyId}/transactions`));
-                const { id, status, matchedEntityName, matchedAccountName, ...dataToSave } = t;
-                batch.set(docRef, dataToSave);
-            }
+            const docRef = doc(collection(firestore, `/users/${user.uid}/companies/${params.companyId}/transactions`));
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { id, status, matchedEntityName, matchedAccountName, ...dataToSave } = t;
+            batch.set(docRef, dataToSave);
         });
 
         try {
             await batch.commit();
-            setReviewedTransactions(prev => prev.map(t => selectedRows.includes(t.id) ? { ...t, status: 'confirmed' } : t));
+            
+            // Update global state
+            const updatedTransactions = reviewedTransactions.map(t => 
+                selectedRows.includes(t.id) ? { ...t, status: 'confirmed' as const } : t
+            );
+            setReviewedTransactions(updatedTransactions);
+            
             setSelectedRows([]);
-            toast({ title: `${selectedRows.length} transactions confirmed and saved.` });
+            toast({ title: `${transactionsToConfirm.length} transactions confirmed and saved.` });
         } catch (error) {
             console.error("Confirmation error:", error);
             toast({ variant: 'destructive', title: 'Confirmation Failed' });
@@ -259,8 +274,8 @@ export default function TransactionsPage() {
             'Date': t.date,
             'Description': t.description,
             'Amount': t.amount,
-            'Entity': t.matchedEntityName,
-            'Account': t.matchedAccountName,
+            'Entity': t.matchedEntityName || '',
+            'Account': t.matchedAccountName || '',
             'Memo': t.memo || '',
         }));
 
@@ -275,19 +290,19 @@ export default function TransactionsPage() {
         switch (status) {
             case 'matched': return <Badge variant="secondary">Matched</Badge>;
             case 'edited': return <Badge variant="outline">Edited</Badge>;
-            case 'confirmed': return <Badge variant="default">Confirmed</Badge>;
+            case 'confirmed': return <Badge variant="default" className="bg-green-600 hover:bg-green-700">Confirmed</Badge>;
             default: return <Badge variant="destructive">Unmatched</Badge>;
         }
     };
 
-    const EntitySelector = ({ transaction, index }: { transaction: Transaction, index: number }) => {
+    const EntitySelector = ({ transaction }: { transaction: Transaction }) => {
         const [open, setOpen] = useState(false);
         const currentEntity = allEntities.find(e => e.id === (transaction.vendorId || transaction.customerId));
         
         return (
             <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
-                    <Button variant="outline" role="combobox" className="w-[200px] justify-between">
+                    <Button variant="outline" role="combobox" className="w-[200px] justify-between" disabled={transaction.status === 'confirmed'}>
                         {currentEntity?.name || "Select entity..."}
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
@@ -301,7 +316,7 @@ export default function TransactionsPage() {
                             {allEntities.map((entity) => (
                                 <CommandItem key={entity.id} value={entity.name} onSelect={() => {
                                     const account = chartOfAccounts.find(a => a.id === (entity.type === 'vendor' ? vendors.find(v => v.id === entity.id)?.defaultExpenseAccountId : customers.find(c => c.id === entity.id)?.defaultRevenueAccountId));
-                                    handleUpdateTransaction(index, { 
+                                    handleUpdateTransactionLocal(transaction.id, { 
                                         vendorId: entity.type === 'vendor' ? entity.id : undefined,
                                         customerId: entity.type === 'customer' ? entity.id : undefined,
                                         matchedEntityName: entity.name,
@@ -322,14 +337,14 @@ export default function TransactionsPage() {
         );
     };
 
-    const AccountSelector = ({ transaction, index }: { transaction: Transaction, index: number }) => {
+    const AccountSelector = ({ transaction }: { transaction: Transaction }) => {
         const [open, setOpen] = useState(false);
         const currentAccount = chartOfAccounts.find(a => a.id === transaction.chartOfAccountId);
 
         return (
             <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
-                    <Button variant="outline" role="combobox" className="w-[250px] justify-between truncate">
+                    <Button variant="outline" role="combobox" className="w-[250px] justify-between truncate" disabled={transaction.status === 'confirmed'}>
                         {currentAccount ? formatAccountName(currentAccount) : "Select account..."}
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
@@ -342,7 +357,7 @@ export default function TransactionsPage() {
                         <CommandGroup>
                             {chartOfAccounts.map((account) => (
                                 <CommandItem key={account.id} value={formatAccountName(account)} onSelect={() => {
-                                    handleUpdateTransaction(index, {
+                                    handleUpdateTransactionLocal(transaction.id, {
                                         chartOfAccountId: account.id,
                                         matchedAccountName: formatAccountName(account)
                                     });
@@ -373,7 +388,13 @@ export default function TransactionsPage() {
                     <CardDescription>Upload a CSV or Excel file. <a href="/samples/transactions.csv" download className="text-primary hover:underline">Download sample file.</a></CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <Input type="file" onChange={handleFileUpload} disabled={isUploading || isMatching} accept=".csv, .xlsx" className="max-w-xs" />
+                    <div className="flex items-center gap-2">
+                        <Input id="file-input-transactions" type="file" onChange={handleFileUpload} disabled={isUploading || isMatching} accept=".csv, .xlsx" className="max-w-xs cursor-pointer" />
+                         <Button onClick={handleRunMatching} disabled={isMatching || rawTransactions.length === 0} variant="outline">
+                            {isMatching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                            Run AI Matching
+                        </Button>
+                    </div>
                 </CardContent>
             </Card>
 
@@ -390,10 +411,6 @@ export default function TransactionsPage() {
                                 Confirm ({selectedRows.length})
                            </Button>
                         )}
-                        <Button onClick={handleRunMatching} disabled={isMatching || rawTransactions.length === 0} variant="outline">
-                            {isMatching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                            Run AI Matching
-                        </Button>
                     </div>
                 </CardHeader>
                 <CardContent>
@@ -403,7 +420,7 @@ export default function TransactionsPage() {
                                 <TableRow>
                                     <TableHead className="px-4 w-[50px]">
                                         <Checkbox
-                                            checked={selectedRows.length > 0 && selectedRows.length === paginatedTransactions.length && paginatedTransactions.length > 0}
+                                            checked={selectedRows.length > 0 && selectedRows.length === paginatedTransactions.filter(t => t.status !== 'confirmed').length && paginatedTransactions.length > 0}
                                             onCheckedChange={handleSelectAll}
                                             aria-label="Select all"
                                         />
@@ -425,7 +442,7 @@ export default function TransactionsPage() {
                                         </TableCell>
                                     </TableRow>
                                 ) : paginatedTransactions.length > 0 ? (
-                                    paginatedTransactions.map((transaction, index) => (
+                                    paginatedTransactions.map((transaction) => (
                                         <TableRow key={transaction.id}>
                                             <TableCell className="px-4">
                                                 <Checkbox
@@ -439,10 +456,10 @@ export default function TransactionsPage() {
                                             <TableCell className="max-w-xs truncate">{transaction.description}</TableCell>
                                             <TableCell className="text-right">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(transaction.amount)}</TableCell>
                                             <TableCell>
-                                                <EntitySelector transaction={transaction} index={index} />
+                                                <EntitySelector transaction={transaction} />
                                             </TableCell>
                                             <TableCell>
-                                                <AccountSelector transaction={transaction} index={index} />
+                                                <AccountSelector transaction={transaction} />
                                             </TableCell>
                                             <TableCell>{getStatusBadge(transaction.status)}</TableCell>
                                         </TableRow>

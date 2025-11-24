@@ -169,7 +169,7 @@ export default function TransactionsPage() {
 
         try {
             const result = await matchTransactions({
-                transactions: JSON.stringify(rawTransactions),
+                transactions: rawTransactions,
                 vendors: JSON.stringify(vendors.map(v => ({ id: v.id, vendorName: v.vendorName, defaultExpenseAccountId: v.defaultExpenseAccountId }))),
                 customers: JSON.stringify(customers.map(c => ({ id: c.id, customerName: c.customerName, defaultRevenueAccountId: c.defaultRevenueAccountId }))),
                 chartOfAccounts: JSON.stringify(chartOfAccounts),

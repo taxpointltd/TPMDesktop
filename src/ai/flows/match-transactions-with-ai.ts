@@ -11,8 +11,18 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'zod';
 
+const RawTransactionSchema = z.object({
+  TransactionDate: z.string(),
+  'Appears On Your Statement As': z.string(),
+  Name: z.string(),
+  Account: z.string(),
+  Amount: z.number(),
+  Category: z.string(),
+  'Payment Account': z.string(),
+});
+
 const MatchTransactionsInputSchema = z.object({
-  transactions: z.string().describe('A JSON string of raw transaction data. Each object contains fields like \'Appears On Your Statement As\', \'Amount\', etc.'),
+  transactions: z.array(RawTransactionSchema).describe('An array of raw transaction objects. Each object contains fields like \'Appears On Your Statement As\', \'Amount\', etc.'),
   vendors: z.string().describe('A JSON string representing a list of vendors, each with an id and vendorName.'),
   customers: z.string().describe('A JSON string representing a list of customers, each with an id and customerName.'),
   chartOfAccounts: z.string().describe('A JSON string of the chart of accounts, with id, names, and numbers.'),
@@ -42,13 +52,13 @@ const matchTransactionsPrompt = ai.definePrompt({
   output: {schema: MatchTransactionsOutputSchema},
   prompt: `You are an expert accounting AI. Your task is to match a list of raw bank transactions to the appropriate vendors, customers, and chart of accounts.
 
-You will be given the following data as JSON strings:
-1.  A list of raw transactions, each with various fields, but you should primarily focus on the 'Appears On Your Statement As' field for matching.
-2.  A list of known Vendors, each with an 'id' and 'vendorName'.
-3.  A list of known Customers, each with an 'id' and 'customerName'.
-4.  A Chart of Accounts (COA), with each account having an 'id', account details, and potentially a 'defaultVendorId' or 'defaultCustomerId'.
+You will be given the following data:
+1.  An array of raw transaction objects. You should primarily focus on the 'Appears On Your Statement As' field for matching.
+2.  A JSON string of known Vendors, each with an 'id' and 'vendorName'.
+3.  A JSON string of known Customers, each with an 'id' and 'customerName'.
+4.  A JSON string representing the Chart of Accounts (COA), with each account having an 'id', account details, and potentially a 'defaultVendorId' or 'defaultCustomerId'.
 
-For each raw transaction, follow these steps:
+For each raw transaction object in the input array, follow these steps:
 1.  Analyze the transaction's 'Appears On Your Statement As' field to identify if it relates to a known Vendor or Customer. Match based on the name. For example, a description 'STARBUCKS COFFEE #123' should match the vendor 'Starbucks'.
 2.  If you find a matching Vendor or Customer, record their 'id'.
 3.  After identifying the entity (Vendor/Customer), determine the correct Chart of Account entry.
@@ -64,7 +74,7 @@ Return a JSON object containing a 'matchedTransactions' array. Each item in the 
 - 'chartOfAccountId': The ID of the matched account.
 
 Here is the data:
-Transactions: {{{transactions}}}
+Transactions: {{{json transactions}}}
 Vendors: {{{vendors}}}
 Customers: {{{customers}}}
 Chart of Accounts: {{{chartOfAccounts}}}

@@ -47,7 +47,7 @@ export interface ChartOfAccount {
 export interface Transaction {
   id: string;
   companyId: string;
-  date: string; // ISO 8601 format
+  date: string; // This can be a string from file upload, will be converted later
   amount: number;
   description: string;
   memo?: string;
@@ -61,11 +61,11 @@ export interface Transaction {
 }
 
 export interface RawTransaction {
-    'TransactionDate': string;
+    TransactionDate: string;
     'Appears On Your Statement As': string;
-    'Name': string;
-    'Account': string;
-    'Amount': number;
-    'Category': string;
+    Name: string;
+    Account: string;
+    Amount: number;
+    Category: string;
     'Payment Account': string;
 }

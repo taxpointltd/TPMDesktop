@@ -108,8 +108,8 @@ export default function TransactionsPage() {
     }, [fetchAllData, setRawTransactions, setReviewedTransactions]);
 
     const allEntities = useMemo(() => [
-        ...vendors.map(v => ({ id: v.id, name: v.vendorName, type: 'vendor' })),
-        ...customers.map(c => ({ id: c.id, name: c.customerName, type: 'customer' })),
+        ...vendors.map(v => ({ id: v.id, name: v.vendorName, type: 'vendor' as const })),
+        ...customers.map(c => ({ id: c.id, name: c.customerName, type: 'customer' as const })),
       ], [vendors, customers]);
 
     const paginatedTransactions = useMemo(() => {
@@ -169,7 +169,7 @@ export default function TransactionsPage() {
 
         try {
             const result = await matchTransactions({
-                transactions: JSON.stringify(rawTransactions.map(t => t['Appears On Your Statement As'])),
+                transactions: JSON.stringify(rawTransactions),
                 vendors: JSON.stringify(vendors.map(v => ({ id: v.id, vendorName: v.vendorName, defaultExpenseAccountId: v.defaultExpenseAccountId }))),
                 customers: JSON.stringify(customers.map(c => ({ id: c.id, customerName: c.customerName, defaultRevenueAccountId: c.defaultRevenueAccountId }))),
                 chartOfAccounts: JSON.stringify(chartOfAccounts),
@@ -201,7 +201,7 @@ export default function TransactionsPage() {
             toast({ title: 'AI Matching Complete', description: 'Review the matches below.' });
         } catch (error) {
             console.error("AI Matching error:", error);
-            toast({ variant: 'destructive', title: 'AI Error', description: 'The matching process failed.' });
+            toast({ variant: 'destructive', title: 'AI Error', description: 'The matching process failed. ' + (error as Error).message });
         } finally {
             setIsMatching(false);
         }
@@ -452,7 +452,7 @@ export default function TransactionsPage() {
                                                     disabled={transaction.status === 'confirmed'}
                                                 />
                                             </TableCell>
-                                            <TableCell>{transaction.date}</TableCell>
+                                            <TableCell>{new Date(transaction.date).toLocaleDateString()}</TableCell>
                                             <TableCell className="max-w-xs truncate">{transaction.description}</TableCell>
                                             <TableCell className="text-right">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(transaction.amount)}</TableCell>
                                             <TableCell>

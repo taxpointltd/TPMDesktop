@@ -12,7 +12,7 @@ import {ai} from '@/ai/genkit';
 import {z} from 'zod';
 
 const MatchTransactionsInputSchema = z.object({
-  transactions: z.string().describe('A JSON string of raw transaction data from an Excel sheet.'),
+  transactions: z.string().describe('A JSON string of raw transaction data. Each object contains fields like \'Appears On Your Statement As\', \'Amount\', etc.'),
   vendors: z.string().describe('A JSON string representing a list of vendors, each with an id and vendorName.'),
   customers: z.string().describe('A JSON string representing a list of customers, each with an id and customerName.'),
   chartOfAccounts: z.string().describe('A JSON string of the chart of accounts, with id, names, and numbers.'),
@@ -43,13 +43,13 @@ const matchTransactionsPrompt = ai.definePrompt({
   prompt: `You are an expert accounting AI. Your task is to match a list of raw bank transactions to the appropriate vendors, customers, and chart of accounts.
 
 You will be given the following data as JSON strings:
-1.  A list of raw transactions, each with a description (e.g., 'Appears On Your Statement As').
+1.  A list of raw transactions, each with various fields, but you should primarily focus on the 'Appears On Your Statement As' field for matching.
 2.  A list of known Vendors, each with an 'id' and 'vendorName'.
 3.  A list of known Customers, each with an 'id' and 'customerName'.
 4.  A Chart of Accounts (COA), with each account having an 'id', account details, and potentially a 'defaultVendorId' or 'defaultCustomerId'.
 
 For each raw transaction, follow these steps:
-1.  Analyze the transaction description (the 'Appears On Your Statement As' field) to identify if it relates to a known Vendor or Customer. Match based on the name. For example, a description 'STARBUCKS COFFEE #123' should match the vendor 'Starbucks'.
+1.  Analyze the transaction's 'Appears On Your Statement As' field to identify if it relates to a known Vendor or Customer. Match based on the name. For example, a description 'STARBUCKS COFFEE #123' should match the vendor 'Starbucks'.
 2.  If you find a matching Vendor or Customer, record their 'id'.
 3.  After identifying the entity (Vendor/Customer), determine the correct Chart of Account entry.
     - If the matched Vendor has a 'defaultExpenseAccountId', or the Customer has a 'defaultRevenueAccountId', use that as the 'chartOfAccountId'.

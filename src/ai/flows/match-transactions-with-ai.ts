@@ -53,7 +53,7 @@ const matchTransactionsPrompt = ai.definePrompt({
   prompt: `You are an expert accounting AI. Your task is to match a list of raw bank transactions to the appropriate vendors, customers, and chart of accounts.
 
 You will be given the following data:
-1.  An array of raw transaction objects. You should primarily focus on the 'Appears On Your Statement As' field for matching.
+1.  An array of raw transaction objects. You should primarily focus on the 'Appears On Your Statement As' field for matching. The 'TransactionDate' will be a string.
 2.  A JSON string of known Vendors, each with an 'id' and 'vendorName'.
 3.  A JSON string of known Customers, each with an 'id' and 'customerName'.
 4.  A JSON string representing the Chart of Accounts (COA), with each account having an 'id', account details, and potentially a 'defaultVendorId' or 'defaultCustomerId'.

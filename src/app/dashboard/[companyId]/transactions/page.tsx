@@ -54,6 +54,26 @@ const formatAccountName = (account: ChartOfAccount): string => {
     return name;
 };
 
+// Function to convert Excel serial date to a JS Date object
+const excelSerialDateToJSDate = (serial: number) => {
+    const utc_days  = Math.floor(serial - 25569);
+    const utc_value = utc_days * 86400;                                        
+    const date_info = new Date(utc_value * 1000);
+
+    const fractional_day = serial - Math.floor(serial) + 0.0000001;
+
+    let total_seconds = Math.floor(86400 * fractional_day);
+
+    const seconds = total_seconds % 60;
+
+    total_seconds -= seconds;
+
+    const hours = Math.floor(total_seconds / (60 * 60));
+    const minutes = Math.floor(total_seconds / 60) % 60;
+
+    return new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate(), hours, minutes, seconds);
+}
+
 export default function TransactionsPage() {
     const params = useParams() as { companyId: string };
     const { user } = useUser();
@@ -131,10 +151,19 @@ export default function TransactionsPage() {
         reader.onload = (e) => {
             try {
                 const data = e.target?.result;
-                const workbook = XLSX.read(data, { type: 'binary' });
+                const workbook = XLSX.read(data, { type: 'binary', cellDates: true });
                 const sheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[sheetName];
-                const json: RawTransaction[] = XLSX.utils.sheet_to_json(worksheet);
+                let json: RawTransaction[] = XLSX.utils.sheet_to_json(worksheet, { raw: false });
+
+                // Sanitize and convert dates
+                json = json.map(row => ({
+                    ...row,
+                    TransactionDate: row.TransactionDate instanceof Date 
+                        ? row.TransactionDate.toLocaleDateString('en-US') 
+                        : String(row.TransactionDate)
+                }));
+
 
                 setRawTransactions(json);
                 // Immediately populate reviewable transactions from raw data
@@ -452,7 +481,7 @@ export default function TransactionsPage() {
                                                     disabled={transaction.status === 'confirmed'}
                                                 />
                                             </TableCell>
-                                            <TableCell>{new Date(transaction.date).toLocaleDateString()}</TableCell>
+                                            <TableCell>{transaction.date}</TableCell>
                                             <TableCell className="max-w-xs truncate">{transaction.description}</TableCell>
                                             <TableCell className="text-right">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(transaction.amount)}</TableCell>
                                             <TableCell>

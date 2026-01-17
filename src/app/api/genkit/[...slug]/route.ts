@@ -1,4 +1,4 @@
-import { genkit } from '@genkit-ai/next';
+import genkit from '@genkit-ai/next';
 
 // Import your flows here
 import '@/ai/flows/generate-starting-coa';
